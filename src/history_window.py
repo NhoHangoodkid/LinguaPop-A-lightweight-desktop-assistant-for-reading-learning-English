@@ -1,6 +1,7 @@
 """
 Cua so xem lich su dich. Mo bang hotkey, co tim kiem va copy.
 """
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 from history import TranslationHistory
@@ -91,8 +92,9 @@ class HistoryWindow:
 
         # Cuon bang chuot
         def on_mousewheel(e):
-            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
+            if canvas.winfo_exists():
+                canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        win.bind("<MouseWheel>", on_mousewheel)
 
         # Phim tat
         win.bind("<Escape>", lambda e: win.destroy())
@@ -165,12 +167,27 @@ class HistoryWindow:
             rid = rec["id"]
             full_trans = rec["translated"]
 
-            copy_btn = tk.Label(
-                btn_frame, text="📋 Copy", bg=CARD_BG, fg=ACCENT,
-                font=("Segoe UI", 8), cursor="hand2")
-            copy_btn.pack(side="left")
-            copy_btn.bind("<Button-1>",
-                          lambda e, t=full_trans: self._copy(t))
+            parts = full_trans.split("\n---\n")
+            if len(parts) > 1:
+                for i, p in enumerate(parts):
+                    text_to_copy = p
+                    match = re.match(r"^\[\d+\]\s*(.*)$", p, flags=re.DOTALL)
+                    if match:
+                        text_to_copy = match.group(1)
+                        
+                    copy_btn = tk.Label(
+                        btn_frame, text=f"📋 Copy [{i+1}]", bg=CARD_BG, fg=ACCENT,
+                        font=("Segoe UI", 8), cursor="hand2")
+                    copy_btn.pack(side="left", padx=(0, 8) if i < len(parts)-1 else 0)
+                    copy_btn.bind("<Button-1>",
+                                  lambda e, t=text_to_copy: self._copy(t))
+            else:
+                copy_btn = tk.Label(
+                    btn_frame, text="📋 Copy", bg=CARD_BG, fg=ACCENT,
+                    font=("Segoe UI", 8), cursor="hand2")
+                copy_btn.pack(side="left")
+                copy_btn.bind("<Button-1>",
+                              lambda e, t=full_trans: self._copy(t))
 
             del_btn = tk.Label(
                 btn_frame, text="🗑 Xóa", bg=CARD_BG, fg="#c62828",

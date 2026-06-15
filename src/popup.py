@@ -5,6 +5,7 @@ Dung tkinter (co san trong Python). Chay tren luong chinh (main thread).
 Vi tkinter khong an toan khi goi tu luong khac, hotkey listener se gui yeu cau
 qua mot hang doi, va vong lap chinh trong main.py se goi show() o day.
 """
+import re
 import tkinter as tk
 
 
@@ -17,6 +18,7 @@ class Popup:
         self.root.withdraw()  # an cua so goc
         self._win = None
         self._timer_id = None
+        self.on_history_click = None
 
     def _cancel_pending(self):
         if self._timer_id is not None:
@@ -60,20 +62,77 @@ class Popup:
         frame = tk.Frame(container, bg="#0f172a", padx=16, pady=14)
         frame.pack(fill="both", expand=True)
 
-        label = tk.Label(
-            frame, text=text, bg="#0f172a", fg="#f8fafc",
-            font=("Segoe UI", self.font_size), justify="left",
-            wraplength=self.max_width, anchor="w")
-        label.pack(fill="both", expand=True)
+        def make_copy_and_close_func(t):
+            def _handler(e):
+                self.root.clipboard_clear()
+                self.root.clipboard_append(t)
+                self.root.update()
+                self._close()
+                return "break"
+            return _handler
+
+        is_error_or_loading = text in ["Dang dich...", "(khong co ket qua)"] or text.startswith("Khong lay duoc") or text.startswith("Loi")
+        parts = text.split("\n---\n")
+
+        if len(parts) > 1 and not is_error_or_loading:
+            for i, p in enumerate(parts):
+                text_to_copy = p
+                match = re.match(r"^\[\d+\]\s*(.*)$", p, flags=re.DOTALL)
+                if match:
+                    text_to_copy = match.group(1)
+                
+                opt_lbl = tk.Label(
+                    frame, text=p, bg="#0f172a", fg="#f8fafc",
+                    font=("Segoe UI", self.font_size), justify="left",
+                    wraplength=self.max_width, anchor="w", cursor="hand2")
+                opt_lbl.pack(fill="x", pady=(0, 4) if i < len(parts)-1 else 0)
+                
+                def _enter(e, l=opt_lbl): l.configure(bg="#1e293b")
+                def _leave(e, l=opt_lbl): l.configure(bg="#0f172a")
+                
+                opt_lbl.bind("<Enter>", _enter)
+                opt_lbl.bind("<Leave>", _leave)
+                opt_lbl.bind("<Button-1>", make_copy_and_close_func(text_to_copy))
+                
+                if i < len(parts) - 1:
+                    divider = tk.Frame(frame, bg="#334155", height=1)
+                    divider.pack(fill="x", pady=4)
+        else:
+            label = tk.Label(
+                frame, text=text, bg="#0f172a", fg="#f8fafc",
+                font=("Segoe UI", self.font_size), justify="left",
+                wraplength=self.max_width, anchor="w")
+            
+            if not is_error_or_loading:
+                label.configure(cursor="hand2")
+                def _enter(e): label.configure(bg="#1e293b")
+                def _leave(e): label.configure(bg="#0f172a")
+                label.bind("<Enter>", _enter)
+                label.bind("<Leave>", _leave)
+                label.bind("<Button-1>", make_copy_and_close_func(text))
+                
+            label.pack(fill="both", expand=True)
 
         # Duong phan cach mong truoc dong hint (Slate 700)
         sep = tk.Frame(frame, bg="#334155", height=1)
         sep.pack(fill="x", pady=(12, 8))
 
+        bottom_bar = tk.Frame(frame, bg="#0f172a")
+        bottom_bar.pack(fill="x")
+
+        if self.on_history_click:
+            hist_lbl = tk.Label(
+                bottom_bar, text="Lịch sử dịch", bg="#0f172a", fg="#38bdf8",
+                font=("Segoe UI", 8, "underline"), cursor="hand2")
+            hist_lbl.pack(side="left")
+            def _on_hist(e):
+                self.on_history_click()
+            hist_lbl.bind("<Button-1>", _on_hist)
+
         hint = tk.Label(
-            frame, text="Esc · click de dong", bg="#0f172a", fg="#94a3b8",
+            bottom_bar, text="Esc · click de dong", bg="#0f172a", fg="#94a3b8",
             font=("Segoe UI", 8))
-        hint.pack(anchor="e")
+        hint.pack(side="right")
 
         # Dong bang Esc hoac click (gan cho cac thanh phan)
         def close_handler(e):
@@ -81,8 +140,8 @@ class Popup:
             
         win.bind("<Escape>", close_handler)
         win.bind("<Button-1>", close_handler)
-        label.bind("<Button-1>", close_handler)
         hint.bind("<Button-1>", close_handler)
+        bottom_bar.bind("<Button-1>", close_handler)
         frame.bind("<Button-1>", close_handler)
         
         win.focus_force()
@@ -113,7 +172,7 @@ class Popup:
             self.root.after(15, lambda: self._fade_out(win, alpha))
 
     def show_loading(self, x, y):
-        self.show("⏳ Dang dich...", x, y)
+        self.show("Dang dich...", x, y)
 
     def _close(self):
         self._cancel_pending()

@@ -35,6 +35,8 @@ from engine import TranslationEngine, EngineManager
 from capture import get_selected_text, split_sentences  
 from popup import Popup                                  
 from hotkey import HotkeyListener                       
+from history import TranslationHistory
+from history_window import HistoryWindow
 import ocr
 
 ROOT = Path(__file__).parent.parent
@@ -83,6 +85,9 @@ def main():
     popup = Popup(timeout_ms=ui["popup_timeout_ms"], font_size=ui["font_size"], max_width=ui["max_width"])
     mouse = MouseController()
     
+    history_db = TranslationHistory()
+    history_win = HistoryWindow(history_db)
+    
     ocr_lang = "vi" if "vie" in cfg["ocr"].get("lang", "").lower() else "en"
     ocr_engine_inst = ocr.OCREngine(lang=ocr_lang, use_gpu=(cfg.get("device") == "cuda"))
 
@@ -100,6 +105,8 @@ def main():
     
     listener_ocr = HotkeyListener(cfg["hotkeys"]["translate_ocr"], on_hotkey_ocr)
     listener_ocr.start()
+
+    popup.on_history_click = lambda: events.put("show_history")
 
     print(f"\n[OK] San sang.")
     print(f" - Boi den text + nhan {cfg['hotkeys']['translate_selection'].upper()} de dich.")
@@ -120,6 +127,8 @@ def main():
             handle_translate_sel()
         elif last_event == "translate_ocr":
             handle_translate_ocr()
+        elif last_event == "show_history":
+            history_win.toggle(popup.root)
             
         # Kiem tra lai sau 80ms
         popup.root.after(80, process_queue)
@@ -150,6 +159,8 @@ def main():
                 final_text = "\n---\n".join(f"[{i+1}] {r}" for i, r in enumerate(results))
                 
             popup.show(final_text, x, y)
+            if results:
+                history_db.save(text, final_text, method="selection")
         except Exception as e:
             popup.show(f"Loi dich: {e}", x, y)
         finally:
@@ -188,6 +199,8 @@ def main():
                 
             # Chi hien thi ban dich
             popup.show(final_text, x, y)
+            if results:
+                history_db.save(text, final_text, method="ocr")
             
         except Exception as e:
             popup.show(f"Loi OCR/Dich: {e}", x, y)
