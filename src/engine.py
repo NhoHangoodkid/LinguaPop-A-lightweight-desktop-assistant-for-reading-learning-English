@@ -5,130 +5,203 @@ sau do moi lan dich chi goi translate() -> nhanh.
 Thiet ke khong hard-code EN->VI: moi engine la mot cap (model, tokenizer).
 Them VI->EN sau nay = tao them mot TranslationEngine khac, khong sua logic.
 
-Xu ly do dai: engine tu gom cac cau ngan thanh "lo" vua trong max_input_length
-va chi cat nho cau qua dai khi that su can. Capture chi can dua list cau hoan
-chinh vao -> tach trach nhiem ro rang, de bao tri.
+Xu ly do dai: engine dich tung cau doc lap qua translate_batch (batch song song).
+Khi nhan str, engine tu tach cau bang regex de dam bao Marian luon nhan cau don.
+Capture co the dua list cau hoan chinh hoac str deu duoc.
 """
+import logging
+import re
+
 import ctranslate2
 from transformers import AutoTokenizer
+
+logger = logging.getLogger(__name__)
+
+# Regex tach cau: ket thuc bang . ! ? (co the kem dau dong/ngoac), theo sau la
+# khoang trang hoac cuoi chuoi.  Giu dau cau o cuoi moi cau (lookbehind).
+_SENT_BOUNDARY = re.compile(r'(?<=[.!?])["\')\]]?\s+')
 
 
 class TranslationEngine:
     def __init__(self, model_dir: str, tokenizer_dir: str,
                  device: str = "cpu", max_input_length: int = 128,
                  num_beams: int = 4, num_hypotheses: int = 1,
-                 max_decode_length: int = 128):
+                 max_decode_length: int = 128,
+                 repetition_penalty: float = 1.2,
+                 no_repeat_ngram_size: int = 3,
+                 length_penalty: float = 1.0,
+                 inter_threads: int = 1):
         # Load 1 lan luc khoi dong app
-        self.translator = ctranslate2.Translator(model_dir, device=device)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
+        self.translator = ctranslate2.Translator(
+            model_dir, device=device, inter_threads=inter_threads,
+            compute_type="float32")
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_dir, clean_up_tokenization_spaces=True)
         self.max_input_length = max_input_length
         self.num_beams = num_beams
         self.num_hypotheses = num_hypotheses
         self.max_decode_length = max_decode_length
+        self.repetition_penalty = repetition_penalty
+        self.no_repeat_ngram_size = no_repeat_ngram_size
+        self.length_penalty = length_penalty
 
-    def _n_tokens(self, text: str) -> int:
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _split_sentences(self, text: str) -> list[str]:
+        """
+        Luoi an toan: khi nhan str, tach thanh list cau don truoc khi dich.
+        Marian duoc train tren cau don — dua nguyen doan vao se bi dich cut.
+        """
+        text = text.strip()
+        if not text:
+            return []
+        parts = _SENT_BOUNDARY.split(text)
+        return [p.strip() for p in parts if p and p.strip()]
+
+    def _src_tokens(self, text: str):
+        """Token NGUON (list[str]) de dua vao model."""
+        enc = self.tokenizer(text, truncation=True, max_length=self.max_input_length)
+        
+        full_len = self._n_src_tokens(text)
+        if full_len > self.max_input_length:
+            logger.warning("Dau vao %d token > %d, bi cat bot phan duoi.", 
+                           full_len, self.max_input_length)
+                           
+        return self.tokenizer.convert_ids_to_tokens(enc["input_ids"])
+
+    def _n_src_tokens(self, text: str) -> int:
         return len(self.tokenizer(text, add_special_tokens=True)["input_ids"])
 
-    def _pack(self, sentences):
-        """
-        Gom cau hoan chinh thanh cac lo, moi lo <= max_input_length token.
-        Cau nao tu no da qua dai thi tach rieng (engine se truncate khi dich).
-        Tra ve list[str], moi phan tu la mot doan van ban se dua thang vao model.
-        """
-        chunks = []
-        cur, cur_tok = [], 0
-        for s in sentences:
-            n = self._n_tokens(s)
-            if n >= self.max_input_length:
-                # cau qua dai: chot lo hien tai, day cau dai thanh lo rieng
-                if cur:
-                    chunks.append(" ".join(cur))
-                    cur, cur_tok = [], 0
-                chunks.append(s)
-                continue
-            if cur and cur_tok + n > self.max_input_length:
-                chunks.append(" ".join(cur))
-                cur, cur_tok = [], 0
-            cur.append(s)
-            cur_tok += n
-        if cur:
-            chunks.append(" ".join(cur))
-        return chunks
+    def _decode(self, tokens) -> str:
+        ids = self.tokenizer.convert_tokens_to_ids(tokens)
+        return self.tokenizer.decode(ids, skip_special_tokens=True).strip()
 
-    def _translate_one(self, text):
-        # HF tokenizer -> token string -> CT2 translate -> ghep lai
-        src = self.tokenizer(text, truncation=True, max_length=self.max_input_length)
-        tokens = self.tokenizer.convert_ids_to_tokens(src["input_ids"])
+    def _strip_eos(self, tokens):
+        """Bo </s> o cuoi neu co — KHONG ep model dung giua chung khi lam prefix."""
+        eos = self.tokenizer.eos_token
+        out = list(tokens)
+        while out and out[-1] == eos:
+            out.pop()
+        return out
 
-        # De lay duoc nhieu ban dich khac biet, ta yeu cau tra ve nhieu nhat co the
-        req_hyps = max(self.num_beams, 4)
-        
-        results = self.translator.translate_batch(
-            [tokens],
+    def _run(self, src_tokens, prefix=None, decode_len=None):
+        """Goi CT2 1 cau. Tra ve dãy TOKEN GOC cua ban dich (chua decode)."""
+        kwargs = dict(
             beam_size=self.num_beams,
-            num_hypotheses=min(req_hyps, self.num_beams),
-            max_decoding_length=self.max_decode_length)
+            max_decoding_length=decode_len or self.max_decode_length,
+            repetition_penalty=self.repetition_penalty,
+            no_repeat_ngram_size=self.no_repeat_ngram_size,
+            length_penalty=self.length_penalty,
+        )
+        if prefix is not None:
+            res = self.translator.translate_batch(
+                [src_tokens], target_prefix=[prefix], **kwargs)
+        else:
+            res = self.translator.translate_batch([src_tokens], **kwargs)
+        return res[0].hypotheses[0]
 
-        hyps = []
-        for h in results[0].hypotheses:
-            out_ids = self.tokenizer.convert_tokens_to_ids(h)
-            hyps.append(self.tokenizer.decode(out_ids, skip_special_tokens=True).strip())
-        return hyps
-
-    def translate(self, sentences) -> list:
+    def translate_with_context(self, sentences) -> list:
         """
-        Nhan 1 cau (str) hoac list cau hoan chinh (list[str]) -> tra ve list cac ban dich.
+        Cua so truot 2 cau bang target_prefix.
+        Cau N dich trong ngu canh cau N-1; tra ve list ban dich TUNG cau (cung thu tu).
         """
-        if isinstance(sentences, str):
-            sentences = [sentences]
         sentences = [s.strip() for s in sentences if s and s.strip()]
         if not sentences:
             return []
 
-        chunks = self._pack(sentences)
-        parts = [self._translate_one(c) for c in chunks]
-        
-        # Tao danh sach cac ban dich (toi da = num_beams)
-        final_hyps = []
-        max_hyps_returned = max(len(p) for p in parts) if parts else 0
-        for i in range(max_hyps_returned):
-            hyp_parts = []
-            for p in parts:
-                if i < len(p):
-                    hyp_parts.append(p[i])
-                elif len(p) > 0:
-                    hyp_parts.append(p[-1])
-            final_hyps.append(" ".join(x for x in hyp_parts if x).strip())
-            
-        from difflib import SequenceMatcher
-        
-        unique = []
-        for h in final_hyps:
-            if not h:
+        out_texts = []
+        prev_tokens = None
+
+        for i, sent in enumerate(sentences):
+            # --- Cau dau, hoac khong co prefix -> dich co lap ---
+            if prev_tokens is None:
+                hyp = self._run(self._src_tokens(sent))
+                out_texts.append(self._decode(hyp))
+                prev_tokens = hyp
                 continue
-            is_too_similar = False
-            for u in unique:
-                ratio = SequenceMatcher(None, h.lower(), u.lower()).ratio()
-                if ratio > 0.90:  # Nguong 90%
-                    is_too_similar = True
-                    break
-                    
-            if not is_too_similar:
-                unique.append(h)
+
+            pair_text = sentences[i - 1] + " " + sent
+
+            # --- BAY 3: canh ngan sach token nguon. Vuot gioi han -> lui ve co lap ---
+            if self._n_src_tokens(pair_text) > self.max_input_length:
+                hyp = self._run(self._src_tokens(sent))
+                out_texts.append(self._decode(hyp))
+                prev_tokens = hyp
+                continue
+
+            # --- Dich cap [S_{n-1}+S_n], ep prefix = T_{n-1} ---
+            prefix = self._strip_eos(prev_tokens)
+            decode_len = len(prefix) + self.max_decode_length
+            full = self._run(self._src_tokens(pair_text),
+                             prefix=prefix, decode_len=decode_len)
+
+            # --- BAY token-level: cat dung SO TOKEN cua prefix o dau ---
+            t_n_tokens = full[len(prefix):]
+            t_n = self._decode(t_n_tokens)
+
+            # --- Fallback: model dung som, khong sinh them -> dich co lap ---
+            if not t_n:
+                hyp = self._run(self._src_tokens(sent))
+                t_n = self._decode(hyp)
+                prev_tokens = hyp
+            else:
+                prev_tokens = t_n_tokens
+
+            out_texts.append(t_n)
+
+        return out_texts
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def translate(self, sentences) -> list:
+        """
+        Nhan 1 chuoi (str) hoac list[dict] tu capture.split_sentences.
+        Tra ve list[str] gom 1 phan tu duy nhat (doan van hoan chinh giu nguyen context).
+        """
+        if isinstance(sentences, str):
+            # Fallback: import split_sentences tu capture neu duoc truyen str
+            try:
+                from capture import split_sentences
+                sentences = split_sentences(sentences)
+            except ImportError:
+                sentences = [{"text": sentences, "delimiter": ""}]
                 
-            if len(unique) >= self.num_hypotheses:
-                break
-                
-        # Neu loc xong ma chi co 1 ban dich, nhung beam search co tao ra cac ban dich khac (du kha giong nhau),
-        # chung ta van nen chon them ban do vi nguoi dung da yeu cau num_hypotheses > 1.
-        if len(unique) < self.num_hypotheses:
-            for h in final_hyps:
-                if h and h not in unique:
-                    unique.append(h)
-                if len(unique) >= self.num_hypotheses:
-                    break
-            
-        return unique
+        # Dong nhat ve dang list[dict] de tuong thich code cu (neu co)
+        items = []
+        for s in sentences:
+            if isinstance(s, str):
+                items.append({"text": s, "delimiter": " "})
+            else:
+                items.append(s)
+
+        if not items:
+            return []
+
+        # Loc cac cau thuc su co noi dung de nap vao model
+        texts_to_translate = [item["text"] for item in items if item["text"].strip()]
+        
+        if texts_to_translate:
+            translations = self.translate_with_context(texts_to_translate)
+        else:
+            translations = []
+
+        # Ghep ket qua voi context goc
+        final_parts = []
+        t_idx = 0
+        for item in items:
+            if item["text"].strip():
+                final_parts.append(translations[t_idx])
+                t_idx += 1
+            else:
+                # Cau rong, chi xuat hien do regex hoac khoang trang du, giu nguyen
+                final_parts.append(item["text"])
+            final_parts.append(item["delimiter"])
+
+        return ["".join(final_parts).strip()]
 
 
 class EngineManager:

@@ -17,3 +17,9 @@ __pycache__/
 venv/
 .venv/
 env/
+# Results and Models added to ignore
+comet_results 09/
+result comet 7/
+marianmt-mtet-model-exp07/
+data/
+history.db

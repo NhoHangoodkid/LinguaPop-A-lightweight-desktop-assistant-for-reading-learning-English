@@ -56,17 +56,10 @@ def get_selected_text() -> str:
     return selected.strip()
 
 
-def split_sentences(text: str):
+def split_sentences(text: str) -> list:
     """
-    Tach doan thanh danh sach cau HOAN CHINH (con giu dau cau cuoi).
-
-    Nguyen tac: chi tach theo ranh gioi cau that su (sau . ! ? + khoang trang)
-    va theo xuong dong. KHONG cat giua cau, KHONG vut bo dau cau.
-    Nho vay moi phan tu tra ve la mot cau dung nghia -> mo hinh dich viet hoa
-    dau cau mot cach hop le, khong sinh chu hoa lo lung giua cau khi ghep lai.
-
-    Viec gop cau ngan / chia cau qua dai theo gioi han token do engine lo,
-    de capture.py khong phu thuoc vao tokenizer cu the.
+    Tach doan thanh danh sach cac khoi (block) de giu nguyen context (khoang trang, xuong dong).
+    Moi khoi la mot dict: {"text": "cau hoan chinh", "delimiter": "khoang trang / xuong dong phia sau"}
     """
     text = text.strip()
     if not text:
@@ -75,14 +68,27 @@ def split_sentences(text: str):
     # Fix loi cat tu: neu co dau gach ngang o cuoi dong (vd: dimen-\nsion), noi chung lai voi nhau
     text = re.sub(r'-[ \t]*\n[ \t]*', '', text)
 
-    sentences = []
-    # Tach theo dong truoc, roi tach cau trong tung dong.
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        for part in _SENT_BOUNDARY.split(line):
-            part = part.strip()
-            if part:
-                sentences.append(part)
-    return sentences
+    blocks = []
+    last_end = 0
+    # Dung finditer de tim cac ranh gioi cau (dau cau + khoang trang/xuong dong)
+    for match in _SENT_BOUNDARY.finditer(text):
+        start, end = match.span()
+        sentence = text[last_end:start]
+        delimiter = text[start:end]
+        
+        # Neu cau rong, cong don delimiter vao khoi truoc do
+        if not sentence.strip() and blocks:
+            blocks[-1]["delimiter"] += sentence + delimiter
+        else:
+            blocks.append({"text": sentence, "delimiter": delimiter})
+        last_end = end
+        
+    # Phan con lai cuoi cung (neu co)
+    remaining = text[last_end:]
+    if remaining:
+        if not remaining.strip() and blocks:
+            blocks[-1]["delimiter"] += remaining
+        else:
+            blocks.append({"text": remaining, "delimiter": ""})
+            
+    return blocks

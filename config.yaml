@@ -18,7 +18,7 @@ engines:
 translation:
   max_input_length: 128   # khop voi luc train
   num_beams: 4
-  num_hypotheses: 2       # hien thi 2 ban dich khac nhau tu beam search
+  num_hypotheses: 1       # hien thi 2 ban dich khac nhau tu beam search
   max_decode_length: 128
  
 ui:
