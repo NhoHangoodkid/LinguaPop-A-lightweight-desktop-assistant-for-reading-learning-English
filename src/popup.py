@@ -1,9 +1,9 @@
 """
-Popup nho hien ban dich gan con tro chuot.
-Dung tkinter (co san trong Python). Chay tren luong chinh (main thread).
+Small popup showing translation near the mouse cursor.
+Uses tkinter (built-in with Python). Runs on the main thread.
 
-Vi tkinter khong an toan khi goi tu luong khac, hotkey listener se gui yeu cau
-qua mot hang doi, va vong lap chinh trong main.py se goi show() o day.
+Since tkinter is not thread-safe, the hotkey listener sends requests
+via a queue, and the main loop in main.py calls show() here.
 """
 import re
 import tkinter as tk
@@ -15,7 +15,7 @@ class Popup:
         self.font_size = font_size
         self.max_width = max_width
         self.root = tk.Tk()
-        self.root.withdraw()  # an cua so goc
+        self.root.withdraw()  # hide root window
         self._win = None
         self._timer_id = None
         self.on_history_click = None
@@ -28,7 +28,7 @@ class Popup:
     def show(self, text, x, y):
         self._cancel_pending()
         
-        # Dong popup cu neu con (destroy ngay lap tuc)
+        # Close existing popup if any (destroy immediately)
         if self._win is not None:
             try:
                 self._win.destroy()
@@ -38,24 +38,24 @@ class Popup:
 
         win = tk.Toplevel(self.root)
         self._win = win
-        win.overrideredirect(True)          # bo vien cua so
-        win.attributes("-topmost", True)    # luon noi len tren
-        win.attributes("-alpha", 0.0)       # bat dau voi alpha 0
+        win.overrideredirect(True)          # remove window border
+        win.attributes("-topmost", True)    # always on top
+        win.attributes("-alpha", 0.0)       # start with alpha 0
         
-        # Vien ngoai bang mau accent (Sky blue)
+        # Outer border with accent color (Sky blue)
         win.configure(bg="#38bdf8")
 
-        # Vi tri: gan con tro neu co, neu khong thi giua tren cung
+        # Position: near cursor if available, otherwise centered at top
         if x is None or y is None:
             x = win.winfo_screenwidth() // 2 - self.max_width // 2
             y = 80
         win.geometry(f"+{x + 12}+{y + 12}")
 
-        # Nen chinh (Slate 900)
+        # Main background (Slate 900)
         container = tk.Frame(win, bg="#0f172a")
         container.pack(fill="both", expand=True, padx=1, pady=1)
 
-        # Thanh accent bar mong o tren cung
+        # Thin accent bar at top
         top_bar = tk.Frame(container, bg="#38bdf8", height=2)
         top_bar.pack(fill="x", side="top")
 
@@ -71,7 +71,7 @@ class Popup:
                 return "break"
             return _handler
 
-        is_error_or_loading = text in ["Dang dich...", "(khong co ket qua)"] or text.startswith("Khong lay duoc") or text.startswith("Loi")
+        is_error_or_loading = text in ["Translating...", "(no results)"] or text.startswith("Could not get") or text.startswith("Translation error") or text.startswith("OCR")
         parts = text.split("\n---\n")
 
         if len(parts) > 1 and not is_error_or_loading:
@@ -113,7 +113,7 @@ class Popup:
                 
             label.pack(fill="both", expand=True)
 
-        # Duong phan cach mong truoc dong hint (Slate 700)
+        # Thin separator before hint line (Slate 700)
         sep = tk.Frame(frame, bg="#334155", height=1)
         sep.pack(fill="x", pady=(12, 8))
 
@@ -122,7 +122,7 @@ class Popup:
 
         if self.on_history_click:
             hist_lbl = tk.Label(
-                bottom_bar, text="Lịch sử dịch", bg="#0f172a", fg="#38bdf8",
+                bottom_bar, text="Translation History", bg="#0f172a", fg="#38bdf8",
                 font=("Segoe UI", 8, "underline"), cursor="hand2")
             hist_lbl.pack(side="left")
             def _on_hist(e):
@@ -130,11 +130,11 @@ class Popup:
             hist_lbl.bind("<Button-1>", _on_hist)
 
         hint = tk.Label(
-            bottom_bar, text="Esc · click de dong", bg="#0f172a", fg="#94a3b8",
+            bottom_bar, text="Esc or click to close", bg="#0f172a", fg="#94a3b8",
             font=("Segoe UI", 8))
         hint.pack(side="right")
 
-        # Dong bang Esc hoac click (gan cho cac thanh phan)
+        # Close with Esc or click (bind to all components)
         def close_handler(e):
             self._close()
             
@@ -172,7 +172,7 @@ class Popup:
             self.root.after(15, lambda: self._fade_out(win, alpha))
 
     def show_loading(self, x, y):
-        self.show("Dang dich...", x, y)
+        self.show("Translating...", x, y)
 
     def _close(self):
         self._cancel_pending()

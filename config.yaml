@@ -18,11 +18,11 @@ engines:
 translation:
   max_input_length: 128   # khop voi luc train
   num_beams: 4
-  num_hypotheses: 1       # hien thi 2 ban dich khac nhau tu beam search
+  num_hypotheses: 1       # so luong ban dich tra ve
   max_decode_length: 128
  
 ui:
-  popup_timeout_ms: 15000  # tu dong dong sau bao lau (0 = khong tu dong)
+  popup_timeout_ms: 15000  # tu dong dong sau bao lau (0 = khong tu dong dong)
   font_size: 13
   max_width: 480
 

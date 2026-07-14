@@ -1,8 +1,8 @@
 """
-Lay text dang boi den: backup clipboard -> gia lap Ctrl+C -> doc clipboard
--> tra clipboard cu lai. Co tach cau cho doan dai.
+Get selected text: backup clipboard -> simulate Ctrl+C -> read clipboard
+-> restore old clipboard. Includes sentence splitting for long paragraphs.
 
-OCR sau nay: them ham capture_from_image() vao day, tra ve cung kieu str.
+OCR later: add a capture_from_image() function here, returning the same str type.
 """
 import re
 import time
@@ -12,13 +12,13 @@ from pynput.keyboard import Controller, Key
 
 _kbd = Controller()
 
-# Mot cau ket thuc bang . ! ? (co the kem dau dong/ngoac), theo sau la khoang trang.
-# Dung de tach cau MA VAN giu nguyen dau cau o cuoi moi cau.
+# A sentence ends with . ! ? (optionally followed by closing quotes/brackets), followed by whitespace.
+# Used to split sentences WHILE keeping the punctuation at the end of each sentence.
 _SENT_BOUNDARY = re.compile(r'(?<=[.!?])["\')\]]?\s+')
 
 
 def get_selected_text() -> str:
-    """Tra ve text dang boi den, hoac chuoi rong neu khong lay duoc."""
+    """Returns the currently selected text, or an empty string if unable to get it."""
     backup = ""
     try:
         backup = pyperclip.paste()
@@ -58,32 +58,32 @@ def get_selected_text() -> str:
 
 def split_sentences(text: str) -> list:
     """
-    Tach doan thanh danh sach cac khoi (block) de giu nguyen context (khoang trang, xuong dong).
-    Moi khoi la mot dict: {"text": "cau hoan chinh", "delimiter": "khoang trang / xuong dong phia sau"}
+    Split a paragraph into a list of blocks to preserve context (whitespace, newlines).
+    Each block is a dict: {"text": "complete sentence", "delimiter": "whitespace / newline after it"}
     """
     text = text.strip()
     if not text:
         return []
 
-    # Fix loi cat tu: neu co dau gach ngang o cuoi dong (vd: dimen-\nsion), noi chung lai voi nhau
+    # Fix word wrap: if there is a hyphen at the end of a line (e.g., dimen-\nsion), join them together
     text = re.sub(r'-[ \t]*\n[ \t]*', '', text)
 
     blocks = []
     last_end = 0
-    # Dung finditer de tim cac ranh gioi cau (dau cau + khoang trang/xuong dong)
+    # Use finditer to find sentence boundaries (punctuation + whitespace/newline)
     for match in _SENT_BOUNDARY.finditer(text):
         start, end = match.span()
         sentence = text[last_end:start]
         delimiter = text[start:end]
         
-        # Neu cau rong, cong don delimiter vao khoi truoc do
+        # If the sentence is empty, append the delimiter to the previous block
         if not sentence.strip() and blocks:
             blocks[-1]["delimiter"] += sentence + delimiter
         else:
             blocks.append({"text": sentence, "delimiter": delimiter})
         last_end = end
         
-    # Phan con lai cuoi cung (neu co)
+        # The remaining part at the end (if any)
     remaining = text[last_end:]
     if remaining:
         if not remaining.strip() and blocks:

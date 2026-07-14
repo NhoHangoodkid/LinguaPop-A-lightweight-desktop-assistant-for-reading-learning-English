@@ -1,6 +1,6 @@
 """
-Luu lich su dich vao SQLite.
-Moi ban ghi gom: text goc, ban dich, nguon (selection/ocr), thoi gian.
+Save translation history to SQLite.
+Each record includes: original text, translation, source (selection/ocr), timestamp.
 """
 import sqlite3
 from pathlib import Path
@@ -26,7 +26,7 @@ class TranslationHistory:
                     created_at TEXT NOT NULL
                 )
             """)
-            # Index de tim kiem nhanh
+            # Index for fast searching
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_created
                 ON history(created_at DESC)
@@ -35,9 +35,8 @@ class TranslationHistory:
     def _conn(self):
         return sqlite3.connect(self.db_path)
 
-    def save(self, source_text: str, translated: str,
-             method: str = "selection", engine: str = "en-vi"):
-        """Luu mot ban dich. Goi sau moi lan dich thanh cong."""
+    def save(self, source_text: str, translated: str, method: str = "selection", engine: str = "en-vi"):
+        """Save a translation. Call this after every successful translation."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self._conn() as conn:
             conn.execute(
@@ -46,7 +45,7 @@ class TranslationHistory:
                 (source_text.strip(), translated.strip(), method, engine, now))
 
     def search(self, keyword: str, limit: int = 50) -> list[dict]:
-        """Tim theo tu khoa trong text goc hoac ban dich."""
+        """Search by keyword in the original text or translation."""
         with self._conn() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
@@ -58,7 +57,7 @@ class TranslationHistory:
         return [dict(r) for r in rows]
 
     def recent(self, limit: int = 50) -> list[dict]:
-        """Lay cac ban dich gan nhat."""
+        """Get the most recent translations."""
         with self._conn() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(

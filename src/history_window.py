@@ -1,5 +1,5 @@
 """
-Cua so xem lich su dich. Mo bang hotkey, co tim kiem va copy.
+Translation history viewer window. Opens via hotkey, with search and copy.
 """
 import re
 import tkinter as tk
@@ -16,7 +16,7 @@ class HistoryWindow:
         return self._win is not None and self._win.winfo_exists()
 
     def toggle(self, root: tk.Tk):
-        """Mo neu dang dong, dong neu dang mo."""
+        """Open if closed, close if open."""
         if self.is_open():
             self._win.destroy()
             self._win = None
@@ -26,22 +26,22 @@ class HistoryWindow:
     def _open(self, root: tk.Tk):
         win = tk.Toplevel(root)
         self._win = win
-        win.title("Lịch sử dịch")
+        win.title("Translation History")
         win.geometry("720x500")
         win.configure(bg="#1a1b2e")
         win.attributes("-topmost", True)
 
-        # -- Mau sac --
+        # -- Colors --
         BG = "#1a1b2e"
         FG = "#e8eaf6"
         ACCENT = "#7c4dff"
         ENTRY_BG = "#2d2f4a"
 
-        # -- Thanh tim kiem --
+        # -- Search bar --
         search_frame = tk.Frame(win, bg=BG, pady=8, padx=12)
         search_frame.pack(fill="x")
 
-        tk.Label(search_frame, text="🔍", bg=BG, fg=FG,
+        tk.Label(search_frame, text="\U0001f50d", bg=BG, fg=FG,
                  font=("Segoe UI", 12)).pack(side="left")
 
         self.search_var = tk.StringVar()
@@ -52,7 +52,7 @@ class HistoryWindow:
         search_entry.pack(side="left", fill="x", expand=True, padx=(8, 8), ipady=4)
         search_entry.focus()
 
-        # Tim khi go (debounce 300ms)
+        # Search on keypress (debounce 300ms)
         self._search_after = None
         def on_search_change(*_):
             if self._search_after:
@@ -60,20 +60,20 @@ class HistoryWindow:
             self._search_after = win.after(300, self._refresh)
         self.search_var.trace_add("write", on_search_change)
 
-        # Nut xoa toan bo
+        # Clear all button
         btn_clear = tk.Button(
-            search_frame, text="Xóa tất cả", bg="#c62828", fg="white",
+            search_frame, text="Clear All", bg="#c62828", fg="white",
             font=("Segoe UI", 9), relief="flat", cursor="hand2",
             command=self._clear_all)
         btn_clear.pack(side="right")
 
-        # -- So ban ghi --
+        # -- Record count --
         self.count_label = tk.Label(
             win, text="", bg=BG, fg="#6c6f85",
             font=("Segoe UI", 9), anchor="w")
         self.count_label.pack(fill="x", padx=14)
 
-        # -- Danh sach lich su (scrollable) --
+        # -- History list (scrollable) --
         container = tk.Frame(win, bg=BG)
         container.pack(fill="both", expand=True, padx=8, pady=(4, 8))
 
@@ -90,20 +90,20 @@ class HistoryWindow:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Cuon bang chuot
+        # Mouse wheel scrolling
         def on_mousewheel(e):
             if canvas.winfo_exists():
                 canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
         win.bind("<MouseWheel>", on_mousewheel)
 
-        # Phim tat
+        # Keyboard shortcuts
         win.bind("<Escape>", lambda e: win.destroy())
 
         self._canvas = canvas
         self._refresh()
 
     def _refresh(self):
-        """Tai lai danh sach tu DB."""
+        """Reload list from DB."""
         for w in self.list_frame.winfo_children():
             w.destroy()
 
@@ -116,7 +116,7 @@ class HistoryWindow:
         total = self.history.count()
         showing = len(records)
         self.count_label.config(
-            text=f"  Hiển thị {showing} / {total} bản ghi")
+            text=f"  Showing {showing} / {total} records")
 
         BG = "#1a1b2e"
         CARD_BG = "#252742"
@@ -126,7 +126,7 @@ class HistoryWindow:
         TIME_FG = "#6c6f85"
 
         if not records:
-            tk.Label(self.list_frame, text="Chưa có lịch sử nào.",
+            tk.Label(self.list_frame, text="No history yet.",
                      bg=BG, fg=TIME_FG, font=("Segoe UI", 11)).pack(pady=40)
             return
 
@@ -134,33 +134,33 @@ class HistoryWindow:
             card = tk.Frame(self.list_frame, bg=CARD_BG, pady=8, padx=12)
             card.pack(fill="x", pady=3, padx=4)
 
-            # Dong 1: thoi gian + method
+            # Row 1: timestamp + method
             header = tk.Frame(card, bg=CARD_BG)
             header.pack(fill="x")
 
-            method_text = "📋 Selection" if rec["method"] == "selection" else "📷 OCR"
+            method_text = "\U0001f4cb Selection" if rec["method"] == "selection" else "\U0001f4f7 OCR"
             tk.Label(header, text=method_text, bg=CARD_BG, fg=ACCENT,
                      font=("Segoe UI", 8, "bold")).pack(side="left")
             tk.Label(header, text=rec["created_at"], bg=CARD_BG, fg=TIME_FG,
                      font=("Segoe UI", 8)).pack(side="right")
 
-            # Dong 2: text goc (rut gon)
+            # Row 2: source text (truncated)
             src = rec["source_text"]
             if len(src) > 120:
-                src = src[:120] + "…"
+                src = src[:120] + "\u2026"
             tk.Label(card, text=src, bg=CARD_BG, fg=SRC_FG,
                      font=("Segoe UI", 9), anchor="w", justify="left",
                      wraplength=650).pack(fill="x", pady=(4, 2))
 
-            # Dong 3: ban dich
+            # Row 3: translation
             trans = rec["translated"]
             if len(trans) > 200:
-                trans = trans[:200] + "…"
+                trans = trans[:200] + "\u2026"
             tk.Label(card, text=trans, bg=CARD_BG, fg=FG,
                      font=("Segoe UI", 10), anchor="w", justify="left",
                      wraplength=650).pack(fill="x")
 
-            # Nut copy + xoa
+            # Copy + delete buttons
             btn_frame = tk.Frame(card, bg=CARD_BG)
             btn_frame.pack(fill="x", pady=(4, 0))
 
@@ -176,21 +176,21 @@ class HistoryWindow:
                         text_to_copy = match.group(1)
                         
                     copy_btn = tk.Label(
-                        btn_frame, text=f"📋 Copy [{i+1}]", bg=CARD_BG, fg=ACCENT,
+                        btn_frame, text=f"\U0001f4cb Copy [{i+1}]", bg=CARD_BG, fg=ACCENT,
                         font=("Segoe UI", 8), cursor="hand2")
                     copy_btn.pack(side="left", padx=(0, 8) if i < len(parts)-1 else 0)
                     copy_btn.bind("<Button-1>",
                                   lambda e, t=text_to_copy: self._copy(t))
             else:
                 copy_btn = tk.Label(
-                    btn_frame, text="📋 Copy", bg=CARD_BG, fg=ACCENT,
+                    btn_frame, text="\U0001f4cb Copy", bg=CARD_BG, fg=ACCENT,
                     font=("Segoe UI", 8), cursor="hand2")
                 copy_btn.pack(side="left")
                 copy_btn.bind("<Button-1>",
                               lambda e, t=full_trans: self._copy(t))
 
             del_btn = tk.Label(
-                btn_frame, text="🗑 Xóa", bg=CARD_BG, fg="#c62828",
+                btn_frame, text="\U0001f5d1 Delete", bg=CARD_BG, fg="#c62828",
                 font=("Segoe UI", 8), cursor="hand2")
             del_btn.pack(side="left", padx=(12, 0))
             del_btn.bind("<Button-1>",
@@ -208,7 +208,7 @@ class HistoryWindow:
     def _clear_all(self):
         if self._win:
             ok = messagebox.askyesno(
-                "Xác nhận", "Xóa toàn bộ lịch sử dịch?",
+                "Confirm", "Delete all translation history?",
                 parent=self._win)
             if ok:
                 self.history.clear_all()

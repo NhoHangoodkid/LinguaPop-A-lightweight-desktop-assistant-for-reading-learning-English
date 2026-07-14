@@ -1,8 +1,8 @@
 """
-Chup vung man hinh -> OCR bang PaddleOCR -> tra ve text.
+Screen region capture -> OCR with RapidOCR -> return text.
 
-PaddleOCR duoc load MOT LAN (giong TranslationEngine),
-moi lan goi chi chay inference -> nhanh hon nhieu so voi khoi tao lai.
+RapidOCR is loaded ONCE (like TranslationEngine),
+each call only runs inference -> much faster than reinitializing.
 """
 import tkinter as tk
 import numpy as np
@@ -12,16 +12,16 @@ from rapidocr_onnxruntime import RapidOCR
 
 
 class OCREngine:
-    """Load RapidOCR mot lan, tai su dung xuyen suot app."""
+    """Load RapidOCR once, reuse throughout the app."""
 
     def __init__(self, lang: str = "en", use_gpu: bool = False):
-        print(f"[OCR] Dang load RapidOCR ...")
+        print(f"[OCR] Loading RapidOCR ...")
         self.engine = RapidOCR()
-        print("[OCR] San sang.")
+        print("[OCR] Ready.")
 
     def recognize(self, img) -> str:
-        """Nhan PIL Image, tra ve text."""
-        # Convert PIL Image (RGB) to BGR for RapidOCR (giong OpenCV)
+        """Accept PIL Image, return recognized text."""
+        # Convert PIL Image (RGB) to BGR for RapidOCR (OpenCV format)
         img_array = np.array(img)
         img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         
@@ -30,15 +30,15 @@ class OCREngine:
         if not result:
             return ""
 
-        # result cua RapidOCR co dang list cac tuple: (box, text, score)
-        # box la list 4 diem toa do
+        # RapidOCR result format: list of tuples (box, text, score)
+        # box is a list of 4 coordinate points
         lines = []
         for bbox, text, conf in result:
             top_y = min(p[1] for p in bbox)
             left_x = min(p[0] for p in bbox)
             lines.append((top_y, left_x, text))
 
-        # Gom thanh dong: cac box co top_y gan nhau (<15px) = cung dong
+        # Group into rows: boxes with close top_y (<15px) = same row
         lines.sort(key=lambda x: (x[0], x[1]))
         grouped = []
         current_row = [lines[0]]
@@ -46,7 +46,7 @@ class OCREngine:
             if abs(item[0] - current_row[0][0]) < 15:
                 current_row.append(item)
             else:
-                current_row.sort(key=lambda x: x[1])  # sap xep trai->phai
+                current_row.sort(key=lambda x: x[1])  # sort left->right
                 grouped.append(" ".join(t for _, _, t in current_row))
                 current_row = [item]
         current_row.sort(key=lambda x: x[1])
@@ -56,14 +56,14 @@ class OCREngine:
 
 
 class ScreenCapture:
-    """Cho nguoi dung keo chon vung tren man hinh."""
+    """Let user drag-select a region on screen."""
 
     def __init__(self):
         self._result = None
         self._center = (0, 0)
 
     def grab(self):
-        """Tra ve (PIL Image, center_x, center_y) hoac (None, 0, 0)."""
+        """Return (PIL Image, center_x, center_y) or (None, 0, 0)."""
         self._result = None
         screenshot = ImageGrab.grab()
 
@@ -78,7 +78,7 @@ class ScreenCapture:
         canvas = tk.Canvas(root, highlightthickness=0)
         canvas.pack(fill="both", expand=True)
         canvas.create_image(0, 0, anchor="nw", image=tk_img)
-        canvas.image = tk_img  # Giu reference tranh bi garbage collected
+        canvas.image = tk_img  # Keep reference to prevent garbage collection
 
         rect_id = None
         start = [0, 0]
@@ -112,7 +112,7 @@ class ScreenCapture:
 
         canvas.create_text(
             screenshot.width // 2, 40,
-            text="Kéo chọn vùng cần dịch · Esc để hủy",
+            text="Drag to select region to translate - Esc to cancel",
             fill="#e8eaf6", font=("Segoe UI", 14, "bold"))
 
         root.wait_window(root)
@@ -121,8 +121,8 @@ class ScreenCapture:
 
 def capture_and_ocr(ocr_engine: OCREngine) -> tuple:
     """
-    Chup man hinh -> OCR -> tra ve (text, x, y).
-    x, y la vi tri giua vung chon de popup hien gan do.
+    Capture screen -> OCR -> return (text, x, y).
+    x, y is the center of the selected region for popup positioning.
     """
     cap = ScreenCapture()
     img, (cx, cy) = cap.grab()

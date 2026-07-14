@@ -1,13 +1,13 @@
 """
-Engine dich: load model CTranslate2 + tokenizer HuggingFace MOT LAN,
-sau do moi lan dich chi goi translate() -> nhanh.
+Translation engine: load HuggingFace tokenizer + CTranslate2 model ONCE,
+then each translation only calls translate() -> fast.
 
-Thiet ke khong hard-code EN->VI: moi engine la mot cap (model, tokenizer).
-Them VI->EN sau nay = tao them mot TranslationEngine khac, khong sua logic.
+Design does not hard-code EN->VI: each engine is a pair (model, tokenizer).
+To add VI->EN later = create another TranslationEngine, without modifying logic.
 
-Xu ly do dai: engine dich tung cau doc lap qua translate_batch (batch song song).
-Khi nhan str, engine tu tach cau bang regex de dam bao Marian luon nhan cau don.
-Capture co the dua list cau hoan chinh hoac str deu duoc.
+Length processing: engine translates each sentence independently via translate_batch (parallel batch).
+When receiving str, engine automatically splits sentences using regex to ensure Marian always receives single sentences.
+Capture can pass a complete list of sentences or a str.
 """
 import logging
 import re
@@ -17,21 +17,14 @@ from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
-# Regex tach cau: ket thuc bang . ! ? (co the kem dau dong/ngoac), theo sau la
-# khoang trang hoac cuoi chuoi.  Giu dau cau o cuoi moi cau (lookbehind).
+# Sentence splitting regex: ends with . ! ? (optionally followed by closing quotes/brackets), followed by
+# whitespace or end of string. Keeps the punctuation at the end of each sentence (lookbehind).
 _SENT_BOUNDARY = re.compile(r'(?<=[.!?])["\')\]]?\s+')
 
 
 class TranslationEngine:
-    def __init__(self, model_dir: str, tokenizer_dir: str,
-                 device: str = "cpu", max_input_length: int = 128,
-                 num_beams: int = 4, num_hypotheses: int = 1,
-                 max_decode_length: int = 128,
-                 repetition_penalty: float = 1.2,
-                 no_repeat_ngram_size: int = 3,
-                 length_penalty: float = 1.0,
-                 inter_threads: int = 1):
-        # Load 1 lan luc khoi dong app
+    def __init__(self, model_dir: str, tokenizer_dir: str, device: str = "cpu", max_input_length: int = 128, num_beams: int = 4, num_hypotheses: int = 1, max_decode_length: int = 128, repetition_penalty: float = 1.2, no_repeat_ngram_size: int = 3, length_penalty: float = 1.0, inter_threads: int = 1):
+        # Load once at app startup
         self.translator = ctranslate2.Translator(
             model_dir, device=device, inter_threads=inter_threads,
             compute_type="float32")
@@ -44,15 +37,12 @@ class TranslationEngine:
         self.repetition_penalty = repetition_penalty
         self.no_repeat_ngram_size = no_repeat_ngram_size
         self.length_penalty = length_penalty
-
-    # ------------------------------------------------------------------
+    
     # Internal
-    # ------------------------------------------------------------------
-
     def _split_sentences(self, text: str) -> list[str]:
         """
-        Luoi an toan: khi nhan str, tach thanh list cau don truoc khi dich.
-        Marian duoc train tren cau don — dua nguyen doan vao se bi dich cut.
+        Safety net: when receiving str, split into single sentences list before translating.
+        Marian is trained on single sentences — passing a whole paragraph will cause truncation.
         """
         text = text.strip()
         if not text:
@@ -61,12 +51,12 @@ class TranslationEngine:
         return [p.strip() for p in parts if p and p.strip()]
 
     def _src_tokens(self, text: str):
-        """Token NGUON (list[str]) de dua vao model."""
+        """SOURCE tokens (list[str]) to feed into the model."""
         enc = self.tokenizer(text, truncation=True, max_length=self.max_input_length)
         
         full_len = self._n_src_tokens(text)
         if full_len > self.max_input_length:
-            logger.warning("Dau vao %d token > %d, bi cat bot phan duoi.", 
+            logger.warning("Input %d tokens > %d, trailing part truncated.", 
                            full_len, self.max_input_length)
                            
         return self.tokenizer.convert_ids_to_tokens(enc["input_ids"])
@@ -79,7 +69,7 @@ class TranslationEngine:
         return self.tokenizer.decode(ids, skip_special_tokens=True).strip()
 
     def _strip_eos(self, tokens):
-        """Bo </s> o cuoi neu co — KHONG ep model dung giua chung khi lam prefix."""
+        """Remove </s> at the end if present — DO NOT force the model to stop midway when used as prefix."""
         eos = self.tokenizer.eos_token
         out = list(tokens)
         while out and out[-1] == eos:
@@ -87,7 +77,7 @@ class TranslationEngine:
         return out
 
     def _run(self, src_tokens, prefix=None, decode_len=None):
-        """Goi CT2 1 cau. Tra ve dãy TOKEN GOC cua ban dich (chua decode)."""
+        """Call CT2 for 1 sentence. Returns the ORIGINAL TOKEN sequence of the translation (undecoded)."""
         kwargs = dict(
             beam_size=self.num_beams,
             max_decoding_length=decode_len or self.max_decode_length,
@@ -104,8 +94,8 @@ class TranslationEngine:
 
     def translate_with_context(self, sentences) -> list:
         """
-        Cua so truot 2 cau bang target_prefix.
-        Cau N dich trong ngu canh cau N-1; tra ve list ban dich TUNG cau (cung thu tu).
+        Sliding window of 2 sentences using target_prefix.
+        Translates sentence N in the context of sentence N-1; returns a list of translations for EACH sentence (in order).
         """
         sentences = [s.strip() for s in sentences if s and s.strip()]
         if not sentences:
@@ -115,7 +105,7 @@ class TranslationEngine:
         prev_tokens = None
 
         for i, sent in enumerate(sentences):
-            # --- Cau dau, hoac khong co prefix -> dich co lap ---
+            # --- First sentence, or no prefix -> translate independently ---
             if prev_tokens is None:
                 hyp = self._run(self._src_tokens(sent))
                 out_texts.append(self._decode(hyp))
@@ -124,24 +114,24 @@ class TranslationEngine:
 
             pair_text = sentences[i - 1] + " " + sent
 
-            # --- BAY 3: canh ngan sach token nguon. Vuot gioi han -> lui ve co lap ---
+            # --- Check exception: source token budget. If exceeded -> fallback to independent translation ---
             if self._n_src_tokens(pair_text) > self.max_input_length:
                 hyp = self._run(self._src_tokens(sent))
                 out_texts.append(self._decode(hyp))
                 prev_tokens = hyp
                 continue
 
-            # --- Dich cap [S_{n-1}+S_n], ep prefix = T_{n-1} ---
+            # --- Translate pair [S_{n-1}+S_n], forcing prefix = T_{n-1} ---
             prefix = self._strip_eos(prev_tokens)
             decode_len = len(prefix) + self.max_decode_length
             full = self._run(self._src_tokens(pair_text),
                              prefix=prefix, decode_len=decode_len)
 
-            # --- BAY token-level: cat dung SO TOKEN cua prefix o dau ---
+            # --- Handle token overlap: slice off the prefix tokens at the beginning of the generated result ---
             t_n_tokens = full[len(prefix):]
             t_n = self._decode(t_n_tokens)
 
-            # --- Fallback: model dung som, khong sinh them -> dich co lap ---
+            # --- Fallback: model stopped early, didn't generate more -> translate independently ---
             if not t_n:
                 hyp = self._run(self._src_tokens(sent))
                 t_n = self._decode(hyp)
@@ -152,25 +142,22 @@ class TranslationEngine:
             out_texts.append(t_n)
 
         return out_texts
-
-    # ------------------------------------------------------------------
+    
     # Public API
-    # ------------------------------------------------------------------
-
     def translate(self, sentences) -> list:
         """
-        Nhan 1 chuoi (str) hoac list[dict] tu capture.split_sentences.
-        Tra ve list[str] gom 1 phan tu duy nhat (doan van hoan chinh giu nguyen context).
+        Accepts a string (str) or list[dict] from capture.split_sentences.
+        Returns list[str] containing a single element (a complete paragraph keeping the original context).
         """
         if isinstance(sentences, str):
-            # Fallback: import split_sentences tu capture neu duoc truyen str
+            # Fallback: import split_sentences from capture if a str is passed
             try:
                 from capture import split_sentences
                 sentences = split_sentences(sentences)
             except ImportError:
                 sentences = [{"text": sentences, "delimiter": ""}]
                 
-        # Dong nhat ve dang list[dict] de tuong thich code cu (neu co)
+        # Normalize to list[dict] for backward compatibility (if any)
         items = []
         for s in sentences:
             if isinstance(s, str):
@@ -181,7 +168,7 @@ class TranslationEngine:
         if not items:
             return []
 
-        # Loc cac cau thuc su co noi dung de nap vao model
+        # Filter sentences that actually have content to feed into the model
         texts_to_translate = [item["text"] for item in items if item["text"].strip()]
         
         if texts_to_translate:
@@ -189,7 +176,7 @@ class TranslationEngine:
         else:
             translations = []
 
-        # Ghep ket qua voi context goc
+        # Assemble results with original context
         final_parts = []
         t_idx = 0
         for item in items:
@@ -197,7 +184,7 @@ class TranslationEngine:
                 final_parts.append(translations[t_idx])
                 t_idx += 1
             else:
-                # Cau rong, chi xuat hien do regex hoac khoang trang du, giu nguyen
+                # Empty sentence, only exists due to regex or extra whitespace, keep it as is
                 final_parts.append(item["text"])
             final_parts.append(item["delimiter"])
 
@@ -205,14 +192,13 @@ class TranslationEngine:
 
 
 class EngineManager:
-    """Quan ly nhieu engine, chon theo cap ngon ngu. Hien tai chi co en-vi."""
+    """Manages multiple engines, selected by language pair. Currently only en-vi is supported."""
 
     def __init__(self):
         self._engines = {}
         self._default = None
 
-    def register(self, name: str, engine: TranslationEngine,
-                 is_default: bool = False):
+    def register(self, name: str, engine: TranslationEngine, is_default: bool = False):
         self._engines[name] = engine
         if is_default or self._default is None:
             self._default = name
@@ -220,5 +206,5 @@ class EngineManager:
     def translate(self, sentences, engine_name: str = None) -> list:
         name = engine_name or self._default
         if name not in self._engines:
-            raise KeyError(f"Chua co engine '{name}'")
+            raise KeyError(f"Engine '{name}' not found")
         return self._engines[name].translate(sentences)
