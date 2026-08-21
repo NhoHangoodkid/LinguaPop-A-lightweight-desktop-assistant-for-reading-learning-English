@@ -1,21 +1,38 @@
-# Desktop Translator (EN->VI)
+# LinguaPop
 
-A convenient Desktop translation tool (English to Vietnamese). Translate highlighted text anywhere on your Windows system using a global hotkey, and the result will instantly appear in a small popup near your mouse cursor. Additionally, the tool supports Optical Character Recognition (OCR) to extract and translate text from screenshots.
+> **A lightweight desktop assistant for reading & learning English.**
+
+**LinguaPop** is a lightweight, all-in-one desktop companion designed to make reading, translating, and learning English effortless on Windows. With global hotkeys, you can instantly translate selected text, extract text from any screen region using OCR, and listen to natural AI neural pronunciations right beside your mouse cursor without breaking your workflow.
+
+---
+
+## Key Features
+
+- **Instant Selection Translation:** Highlight text in any application (browser, PDF, Word, code editor) and press a hotkey to see translated results in a sleek popup.
+- **Screen OCR Extraction:** Capture text from non-selectable areas (images, videos, scanned PDFs) with ultra-fast offline OCR.
+- **Hybrid Neural Text-to-Speech (TTS):** Hear crystal-clear native pronunciations powered by Microsoft Edge Neural AI (`edge-tts`), with automatic offline fallback (`pyttsx3`) when disconnected.
+- **Dedicated Pronunciation Hotkey:** Speak highlighted words or sentences directly on-the-fly.
+- **Translation History:** Keep track of past translations with search, quick copy, and audio replay.
+- **Long Text Chunking:** Automatically segments long passages into sentences to preserve translation quality.
+
+---
 
 ## Technologies & Libraries Used
 
-This project is built and optimized for speed using open-source technologies:
+This project is optimized for speed and low resource consumption using open-source technologies:
 
-- **Translation Model:** [MarianMT](https://huggingface.co/docs/transformers/model_doc/marian) (`opus-mt-en-vi`) fine-tuned on the MTet dataset and Academic (custom by myself).
-- **Inference Engine:** [CTranslate2](https://github.com/OpenNMT/CTranslate2) combined with Hugging Face `transformers` for ultra-fast and lightweight inference (int8 quantization).
-- **Optical Character Recognition (OCR):** [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr_onnxruntime` version), combined with `OpenCV` (`cv2`) and `Pillow` for image processing and text extraction.
-- **Text-to-Speech (TTS):** [edge-tts](https://github.com/rany2/edge-tts) for high-quality Microsoft Edge Neural AI speech synthesis, [pygame](https://github.com/pygame/pygame) for smooth asynchronous audio playback, and [pyttsx3](https://github.com/nateshmbhat/pyttsx3) for 100% offline Windows SAPI5 fallback.
-- **User Interface (UI):** `tkinter` for smooth popup windows and screen selection overlays.
-- **System Interaction:** `pynput` for capturing global hotkeys, `pyperclip` for clipboard operations, and `ctypes` for DPI awareness (preventing blurriness on high-resolution screens).
+- **Neural Machine Translation (NMT):** [MarianMT](https://huggingface.co/docs/transformers/model_doc/marian) (`opus-mt-en-vi`) fine-tuned on the MTet dataset and academic/IELTS parallel corpora.
+- **Inference Engine:** [CTranslate2](https://github.com/OpenNMT/CTranslate2) with 8-bit quantization (`int8`) for near-instant CPU/GPU inference.
+- **Optical Character Recognition (OCR):** [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr_onnxruntime`), combined with `OpenCV` and `Pillow`.
+- **Text-to-Speech (TTS):** [edge-tts](https://github.com/rany2/edge-tts) for Microsoft Edge Neural AI voices (`en-US-JennyNeural`, `vi-VN-HoaiMyNeural`), [pygame](https://github.com/pygame/pygame) for non-blocking in-memory audio playback, and [pyttsx3](https://github.com/nateshmbhat/pyttsx3) for offline Windows SAPI5 fallback.
+- **User Interface (UI):** Pure `tkinter` with custom dark styling and DPI awareness for crisp rendering on high-resolution displays.
+- **System Interaction:** `pynput` for global hotkey hooks, `pyperclip` for clipboard integration.
+
+---
 
 ## Installation & Setup with Virtual Environment (venv)
 
-Ensure you have Python 3.8 to 3.11 installed.
+Ensure you have **Python 3.8 to 3.11** installed.
 
 ### 1. Create a Virtual Environment (`venv`)
 
@@ -32,7 +49,7 @@ python -m venv venv
   ```powershell
   .\venv\Scripts\Activate.ps1
   ```
-  *(If you get a script execution policy error, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first)*
+  *(If you get a script execution policy restriction, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first)*
 
 - **Windows (Command Prompt / cmd.exe):**
   ```cmd
@@ -55,76 +72,102 @@ pip install -r requirements.txt
 
 ---
 
-## Step 1: Convert the Model
+## Step 1: Convert the Model to CTranslate2
 
-After downloading the output from Kaggle or your trained model and extracting it (e.g., a `final_model/` directory):
+After downloading or fine-tuning your MarianMT model (e.g., in a `final_model/` directory):
 
 ```bash
 python scripts/convert_to_ct2.py --model path/to/final_model
 ```
 
-This command will convert the model and create the necessary configuration directories: `models/en-vi-ct2/` and `models/tokenizer-en-vi/`.
+This command converts the model into optimized CTranslate2 format and creates:
+- `models/en-vi-ct2/`
+- `models/tokenizer-en-vi/`
+
+---
 
 ## Step 2: Run the App
 
-Launch the application with the following command (make sure `venv` is activated):
+Launch LinguaPop with:
 
 ```bash
 python src/main.py
 ```
 
-### Usage
-- **Text Translation:** Highlight any text → press **Ctrl+Shift+Y** → the translation popup will appear.
-- **OCR Translation:** Press **Ctrl+Shift+H** → Drag mouse to select a screen region to OCR & translate.
-- **Text-to-Speech (Pronounce):** Highlight any text → press **Ctrl+Alt+S** → pronounce & read aloud instantly.
-- **Popup Controls:**
-  - Press `E` / `S`: Pronounce source text (English).
-  - Press `V` / `Space`: Pronounce translated text (Vietnamese).
-  - Press `Esc`: Close popup and stop audio.
-- **Exit:** Close the running terminal window to exit the app.
+---
 
-## Extended Features
+## Shortcuts & Controls
 
-- **Hybrid Text-to-Speech (TTS):** Microsoft Edge Neural AI TTS with automatic offline `pyttsx3` fallback.
-- **Long Text Translation:** The application automatically splits long paragraphs into individual sentences for smooth translation, preventing truncation at the 128-token limit.
-- **Multi-Engine Support:** The `EngineManager` system allows for easy configuration of additional translation directions (VI→EN) or different models.
+| Shortcut / Key | Action | Description |
+| :--- | :--- | :--- |
+| **`Ctrl + Shift + Y`** | **Translate Highlighted Text** | Grabs selected text, translates EN ➔ VI, and displays the popup. |
+| **`Ctrl + Shift + H`** | **OCR Screen & Translate** | Drag a bounding box on your screen to extract and translate text. |
+| **`Ctrl + Alt + S`** | **Pronounce Selection** | Instantly pronounces selected text out loud. |
+
+### In-Popup Controls:
+- **`E`** or **`S`**: Pronounce source text (English).
+- **`V`** or **`Space`**: Pronounce translated text (Vietnamese).
+- **`Esc`**: Close popup and immediately stop audio playback.
+- **Click on translated text**: Copies text to clipboard and closes popup.
+- **Click "History"**: Opens the Translation History manager.
+
+---
+
+## Configuration (`config.yaml`)
+
+You can customize hotkeys, TTS voices, reading speeds, and UI properties without modifying source code:
+
+```yaml
+hotkeys:
+  translate_selection: "ctrl+shift+y"
+  translate_ocr: "ctrl+shift+h"
+  speak_selection: "ctrl+alt+s"
+
+device: "cpu"          # "cpu" or "cuda"
+
+engines:
+  default: "en-vi"
+  en-vi:
+    model_dir: "models/en-vi-ct2"
+    tokenizer_dir: "models/tokenizer-en-vi"
+
+translation:
+  max_input_length: 128
+  num_beams: 4
+  num_hypotheses: 1
+  max_decode_length: 128
+
+ui:
+  popup_timeout_ms: 15000  # Auto-close timeout (0 = keep open)
+  font_size: 13
+  max_width: 480
+
+ocr:
+  lang: "en"
+  use_gpu: false
+
+tts:
+  enabled: true
+  engine: "hybrid"         # "hybrid", "edge-tts", "pyttsx3"
+  auto_speak: false        # Auto-speak upon translation
+  rate: "+0%"              # Speech speed: "+0%", "+10%", "-10%"
+  volume: "+0%"
+  voices:
+    en: "en-US-JennyNeural"
+    vi: "vi-VN-HoaiMyNeural"
+```
+
+---
 
 ## License
 
-This project is distributed under the **MIT License**. You are free to use, modify, and distribute it.
+Distributed under the **MIT License**. Free for academic, personal, and commercial use.
+
+---
 
 ## Acknowledgements
 
-This project is built upon several open-source projects and resources:
-
-### Models
-
-* MarianMT (English ↔ Vietnamese Neural Machine Translation)
-* Base model: Helsinki-NLP/opus-mt-en-vi
-* Fine-tuned on MTET and additional academic-domain parallel corpora
-
-### Open-source Libraries
-
-* Hugging Face Transformers
-* CTranslate2
-* PyTorch
-* RapidOCR
-* OpenCV
-* Pillow
-* edge-tts
-* pygame
-* pyttsx3
-* pynput
-* pyperclip
-
-### References
-
-* Marian NMT: https://github.com/marian-nmt/marian
-* Hugging Face Transformers: https://github.com/huggingface/transformers
-* CTranslate2: https://github.com/OpenNMT/CTranslate2
-* RapidOCR: https://github.com/RapidAI/RapidOCR
-* edge-tts: https://github.com/rany2/edge-tts
-* pygame: https://github.com/pygame/pygame
-* pyttsx3: https://github.com/nateshmbhat/pyttsx3
-
-Special thanks to the open-source community for providing the tools and resources that made this project possible.
+- **Models:** [Helsinki-NLP/opus-mt-en-vi](https://huggingface.co/Helsinki-NLP/opus-mt-en-vi), MTET Parallel Corpus.
+- **Inference & NMT:** [CTranslate2](https://github.com/OpenNMT/CTranslate2), [Marian NMT](https://github.com/marian-nmt/marian), [Hugging Face Transformers](https://github.com/huggingface/transformers).
+- **OCR:** [RapidOCR](https://github.com/RapidAI/RapidOCR).
+- **Audio & TTS:** [edge-tts](https://github.com/rany2/edge-tts), [pygame](https://github.com/pygame/pygame), [pyttsx3](https://github.com/nateshmbhat/pyttsx3).
