@@ -3,6 +3,7 @@
 hotkeys:
   translate_selection: "ctrl+shift+y"
   translate_ocr: "ctrl+shift+h"   # hotkey cho OCR
+  speak_selection: "ctrl+alt+s" # hotkey phat am van ban boi den (tranh trung DevTools Console)
  
 device: "cpu"          # "cuda" neu may co GPU NVIDIA + CTranslate2 ban GPU
  
@@ -28,4 +29,15 @@ ui:
 
 ocr:
   lang: "en"           # paddleocr lang: "en", "vi", "ch", "japan", ...
-  use_gpu: false 
+  use_gpu: false
+
+tts:
+  enabled: true
+  engine: "hybrid"         # "hybrid", "edge-tts", "pyttsx3"
+  auto_speak: false        # Tu dong doc khi co ket qua dich (true/false)
+  rate: "+0%"              # Toc do doc: "+0%", "+10%", "-10%"
+  volume: "+0%"
+  voices:
+    en: "en-US-JennyNeural"
+    vi: "vi-VN-HoaiMyNeural"
+ 

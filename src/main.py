@@ -37,6 +37,7 @@ from popup import Popup
 from hotkey import HotkeyListener                       
 from history import TranslationHistory
 from history_window import HistoryWindow
+from tts import TTSEngine
 import ocr
 
 ROOT = Path(__file__).parent.parent
@@ -87,6 +88,15 @@ def main():
     
     history_db = TranslationHistory()
     history_win = HistoryWindow(history_db)
+
+    # Initialize TTS Engine
+    tts_cfg = cfg.get("tts", {})
+    tts_engine = TTSEngine(tts_cfg)
+
+    # Connect TTS callbacks
+    popup.on_speak = lambda text, lang: tts_engine.speak_async(text, lang)
+    popup.on_stop_speak = lambda: tts_engine.stop()
+    history_win.on_speak = lambda text, lang: tts_engine.speak_async(text, lang)
     
     ocr_lang = "vi" if "vie" in cfg["ocr"].get("lang", "").lower() else "en"
     ocr_engine_inst = ocr.OCREngine(lang=ocr_lang, use_gpu=(cfg.get("device") == "cuda"))
@@ -100,17 +110,29 @@ def main():
     def on_hotkey_ocr():
         events.put("translate_ocr")
 
+    def on_hotkey_speak():
+        events.put("speak_sel")
+
     listener_sel = HotkeyListener(cfg["hotkeys"]["translate_selection"], on_hotkey_sel)
     listener_sel.start()
     
     listener_ocr = HotkeyListener(cfg["hotkeys"]["translate_ocr"], on_hotkey_ocr)
     listener_ocr.start()
 
+    listener_speak = None
+    if "speak_selection" in cfg.get("hotkeys", {}) and cfg["hotkeys"]["speak_selection"]:
+        listener_speak = HotkeyListener(cfg["hotkeys"]["speak_selection"], on_hotkey_speak)
+        listener_speak.start()
+
     popup.on_history_click = lambda: events.put("show_history")
 
     print(f"\n[OK] Ready.")
     print(f" - Select text + press {cfg['hotkeys']['translate_selection'].upper()} to translate.")
     print(f" - Press {cfg['hotkeys']['translate_ocr'].upper()} to capture screen and translate (OCR).")
+    if listener_speak:
+        print(f" - Select text + press {cfg['hotkeys']['speak_selection'].upper()} to pronounce (read aloud).")
+    if tts_engine.enabled:
+        print(f" - TTS Engine active ({tts_engine.mode}). Press [E] for English audio, [V] for Vietnamese audio on popup.")
     print("Close this terminal window to exit the app.\n")
 
     is_translating = False
@@ -127,6 +149,8 @@ def main():
             handle_translate_sel()
         elif last_event == "translate_ocr":
             handle_translate_ocr()
+        elif last_event == "speak_sel":
+            handle_speak_sel()
         elif last_event == "show_history":
             history_win.toggle(popup.root)
             
@@ -158,9 +182,11 @@ def main():
             else:
                 final_text = "\n---\n".join(f"[{i+1}] {r}" for i, r in enumerate(results))
                 
-            popup.show(final_text, x, y)
+            popup.show(final_text, x, y, source_text=text)
             if results:
                 history_db.save(text, final_text, method="selection")
+                if tts_cfg.get("auto_speak"):
+                    tts_engine.speak_async(results[0], "vi")
         except Exception as e:
             popup.show(f"Translation error: {e}", x, y)
         finally:
@@ -197,22 +223,40 @@ def main():
             else:
                 final_text = "\n---\n".join(f"[{i+1}] {r}" for i, r in enumerate(results))
                 
-            # Show translation only
-            popup.show(final_text, x, y)
+            popup.show(final_text, x, y, source_text=text)
             if results:
                 history_db.save(text, final_text, method="ocr")
+                if tts_cfg.get("auto_speak"):
+                    tts_engine.speak_async(results[0], "vi")
             
         except Exception as e:
             popup.show(f"OCR/Translation error: {e}", x, y)
         finally:
             is_translating = False
 
+    def handle_speak_sel():
+        try:
+            text = get_selected_text()
+            x, y = mouse.position
+            if not text:
+                popup.show("Could not get selected text to pronounce.", x, y)
+                return
+            # Pronounce the selected text immediately
+            tts_engine.speak_async(text)
+            # Show the text in popup
+            popup.show(f"\U0001f50a {text}", x, y, source_text=text)
+        except Exception as e:
+            popup.show(f"Pronounce error: {e}", x, y)
+
     popup.root.after(80, process_queue)
     try:
         popup.run_mainloop()
     finally:
+        tts_engine.stop()
         listener_sel.stop()
         listener_ocr.stop()
+        if listener_speak:
+            listener_speak.stop()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ class HistoryWindow:
     def __init__(self, history: TranslationHistory):
         self.history = history
         self._win = None
+        self.on_speak = None
 
     def is_open(self) -> bool:
         return self._win is not None and self._win.winfo_exists()
@@ -189,12 +190,33 @@ class HistoryWindow:
                 copy_btn.bind("<Button-1>",
                               lambda e, t=full_trans: self._copy(t))
 
+            # TTS speak buttons
+            if self.on_speak:
+                rec_src = rec["source_text"]
+                spk_src_btn = tk.Label(
+                    btn_frame, text="\U0001f50a EN", bg=CARD_BG, fg="#93c5fd",
+                    font=("Segoe UI", 8), cursor="hand2")
+                spk_src_btn.pack(side="left", padx=(10, 0))
+                spk_src_btn.bind("<Button-1>",
+                                 lambda e, s=rec_src: self._speak(s, "en"))
+
+                spk_tgt_btn = tk.Label(
+                    btn_frame, text="\U0001f50a VI", bg=CARD_BG, fg="#38bdf8",
+                    font=("Segoe UI", 8), cursor="hand2")
+                spk_tgt_btn.pack(side="left", padx=(6, 0))
+                spk_tgt_btn.bind("<Button-1>",
+                                 lambda e, t=full_trans: self._speak(t, "vi"))
+
             del_btn = tk.Label(
                 btn_frame, text="\U0001f5d1 Delete", bg=CARD_BG, fg="#c62828",
                 font=("Segoe UI", 8), cursor="hand2")
             del_btn.pack(side="left", padx=(12, 0))
             del_btn.bind("<Button-1>",
                          lambda e, r=rid: self._delete(r))
+
+    def _speak(self, text: str, lang: str):
+        if self.on_speak:
+            self.on_speak(text, lang)
 
     def _copy(self, text: str):
         if self._win:

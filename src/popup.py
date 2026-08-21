@@ -7,6 +7,7 @@ via a queue, and the main loop in main.py calls show() here.
 """
 import re
 import tkinter as tk
+from typing import Optional, Callable
 
 
 class Popup:
@@ -18,14 +19,16 @@ class Popup:
         self.root.withdraw()  # hide root window
         self._win = None
         self._timer_id = None
-        self.on_history_click = None
+        self.on_history_click: Optional[Callable[[], None]] = None
+        self.on_speak: Optional[Callable[[str, Optional[str]], None]] = None
+        self.on_stop_speak: Optional[Callable[[], None]] = None
 
     def _cancel_pending(self):
         if self._timer_id is not None:
             self.root.after_cancel(self._timer_id)
             self._timer_id = None
 
-    def show(self, text, x, y):
+    def show(self, text: str, x: Optional[int], y: Optional[int], source_text: Optional[str] = None):
         self._cancel_pending()
         
         # Close existing popup if any (destroy immediately)
@@ -74,6 +77,7 @@ class Popup:
         is_error_or_loading = text in ["Translating...", "(no results)"] or text.startswith("Could not get") or text.startswith("Translation error") or text.startswith("OCR")
         parts = text.split("\n---\n")
 
+        # Main translation content
         if len(parts) > 1 and not is_error_or_loading:
             for i, p in enumerate(parts):
                 text_to_copy = p
@@ -81,11 +85,14 @@ class Popup:
                 if match:
                     text_to_copy = match.group(1)
                 
+                row = tk.Frame(frame, bg="#0f172a")
+                row.pack(fill="x", pady=(0, 4) if i < len(parts)-1 else 0)
+
                 opt_lbl = tk.Label(
-                    frame, text=p, bg="#0f172a", fg="#f8fafc",
+                    row, text=p, bg="#0f172a", fg="#f8fafc",
                     font=("Segoe UI", self.font_size), justify="left",
-                    wraplength=self.max_width, anchor="w", cursor="hand2")
-                opt_lbl.pack(fill="x", pady=(0, 4) if i < len(parts)-1 else 0)
+                    wraplength=self.max_width - 40, anchor="w", cursor="hand2")
+                opt_lbl.pack(side="left", fill="x", expand=True)
                 
                 def _enter(e, l=opt_lbl): l.configure(bg="#1e293b")
                 def _leave(e, l=opt_lbl): l.configure(bg="#0f172a")
@@ -93,13 +100,27 @@ class Popup:
                 opt_lbl.bind("<Enter>", _enter)
                 opt_lbl.bind("<Leave>", _leave)
                 opt_lbl.bind("<Button-1>", make_copy_and_close_func(text_to_copy))
+
+                if self.on_speak:
+                    speak_btn = tk.Label(
+                        row, text="\U0001f50a", bg="#0f172a", fg="#38bdf8",
+                        font=("Segoe UI", 10), cursor="hand2", padx=4)
+                    speak_btn.pack(side="right")
+                    def _on_spk(e, t=text_to_copy):
+                        if self.on_speak:
+                            self.on_speak(t, "vi")
+                        return "break"
+                    speak_btn.bind("<Button-1>", _on_spk)
                 
                 if i < len(parts) - 1:
                     divider = tk.Frame(frame, bg="#334155", height=1)
                     divider.pack(fill="x", pady=4)
         else:
+            row = tk.Frame(frame, bg="#0f172a")
+            row.pack(fill="both", expand=True)
+
             label = tk.Label(
-                frame, text=text, bg="#0f172a", fg="#f8fafc",
+                row, text=text, bg="#0f172a", fg="#f8fafc",
                 font=("Segoe UI", self.font_size), justify="left",
                 wraplength=self.max_width, anchor="w")
             
@@ -111,38 +132,82 @@ class Popup:
                 label.bind("<Leave>", _leave)
                 label.bind("<Button-1>", make_copy_and_close_func(text))
                 
-            label.pack(fill="both", expand=True)
+            label.pack(side="left", fill="both", expand=True)
 
-        # Thin separator before hint line (Slate 700)
+        # Thin separator before bottom bar
         sep = tk.Frame(frame, bg="#334155", height=1)
         sep.pack(fill="x", pady=(12, 8))
 
         bottom_bar = tk.Frame(frame, bg="#0f172a")
         bottom_bar.pack(fill="x")
 
+        # Left: History link
         if self.on_history_click:
             hist_lbl = tk.Label(
-                bottom_bar, text="Translation History", bg="#0f172a", fg="#38bdf8",
+                bottom_bar, text="History", bg="#0f172a", fg="#38bdf8",
                 font=("Segoe UI", 8, "underline"), cursor="hand2")
-            hist_lbl.pack(side="left")
+            hist_lbl.pack(side="left", padx=(0, 10))
             def _on_hist(e):
                 self.on_history_click()
+                return "break"
             hist_lbl.bind("<Button-1>", _on_hist)
 
+        # Middle: Audio Speak controls
+        if self.on_speak and not is_error_or_loading:
+            btn_frame = tk.Frame(bottom_bar, bg="#0f172a")
+            btn_frame.pack(side="left")
+
+            if source_text:
+                src_btn = tk.Label(
+                    btn_frame, text="\U0001f50a EN (E)", bg="#1e293b", fg="#93c5fd",
+                    font=("Segoe UI", 8, "bold"), cursor="hand2", padx=6, pady=1)
+                src_btn.pack(side="left", padx=(0, 6))
+                def _spk_src(e=None):
+                    if self.on_speak and source_text:
+                        self.on_speak(source_text, "en")
+                    return "break"
+                src_btn.bind("<Button-1>", _spk_src)
+
+            trans_clean = re.sub(r"^\[\d+\]\s*", "", parts[0] if parts else text)
+            tgt_btn = tk.Label(
+                btn_frame, text="\U0001f50a VI (V)", bg="#1e293b", fg="#38bdf8",
+                font=("Segoe UI", 8, "bold"), cursor="hand2", padx=6, pady=1)
+            tgt_btn.pack(side="left")
+            def _spk_tgt(e=None):
+                if self.on_speak:
+                    self.on_speak(trans_clean, "vi")
+                return "break"
+            tgt_btn.bind("<Button-1>", _spk_tgt)
+
+        # Right: Esc hint
         hint = tk.Label(
-            bottom_bar, text="Esc or click to close", bg="#0f172a", fg="#94a3b8",
+            bottom_bar, text="Esc to close", bg="#0f172a", fg="#94a3b8",
             font=("Segoe UI", 8))
         hint.pack(side="right")
 
-        # Close with Esc or click (bind to all components)
+        # Key shortcuts on popup window
+        def on_key(event):
+            key = event.char.lower() if event.char else ""
+            if key in ["v", " "]:
+                if self.on_speak and not is_error_or_loading:
+                    trans_clean = re.sub(r"^\[\d+\]\s*", "", parts[0] if parts else text)
+                    self.on_speak(trans_clean, "vi")
+                    return "break"
+            elif key in ["e", "s"]:
+                if self.on_speak and source_text and not is_error_or_loading:
+                    self.on_speak(source_text, "en")
+                    return "break"
+            elif event.keysym == "Escape":
+                self._close()
+                return "break"
+
+        win.bind("<Key>", on_key)
+
+        # Close with Esc or clicking background
         def close_handler(e):
             self._close()
             
-        win.bind("<Escape>", close_handler)
-        win.bind("<Button-1>", close_handler)
         hint.bind("<Button-1>", close_handler)
-        bottom_bar.bind("<Button-1>", close_handler)
-        frame.bind("<Button-1>", close_handler)
         
         win.focus_force()
 
@@ -176,6 +241,8 @@ class Popup:
 
     def _close(self):
         self._cancel_pending()
+        if self.on_stop_speak:
+            self.on_stop_speak()
         if self._win is not None:
             win_to_close = self._win
             self._win = None
