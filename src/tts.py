@@ -1,35 +1,33 @@
 """
-Text-to-Speech (TTS) Engine.
-Supports Hybrid mode: Edge-TTS (high quality neural voice) with pyttsx3 (offline fallback).
-Runs asynchronously in a background thread to prevent UI freezing.
+Local pretrained Piper text-to-speech engine.
 """
+
 import os
-import asyncio
 import io
 import re
 import threading
 import queue
 import time
+import wave
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+pygame: Any = None
 try:
     import pygame
+
     _PYGAME_AVAILABLE = True
 except ImportError:
     _PYGAME_AVAILABLE = False
 
+PiperVoice: Any = None
 try:
-    import edge_tts
-    _EDGE_TTS_AVAILABLE = True
-except ImportError:
-    _EDGE_TTS_AVAILABLE = False
+    from piper import PiperVoice
 
-try:
-    import pyttsx3
-    _PYTTSX3_AVAILABLE = True
+    _PIPER_AVAILABLE = True
 except ImportError:
-    _PYTTSX3_AVAILABLE = False
+    _PIPER_AVAILABLE = False
 
 
 def is_vietnamese(text: str) -> bool:
@@ -42,13 +40,15 @@ class TTSEngine:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
         self.enabled = cfg.get("enabled", True)
-        self.mode = cfg.get("engine", "hybrid")  # "hybrid", "edge-tts", "pyttsx3"
+        self.mode = cfg.get("engine", "piper")
         self.rate = cfg.get("rate", "+0%")
         self.volume = cfg.get("volume", "+0%")
-        self.voices = cfg.get("voices", {
-            "en": "en-US-JennyNeural",
-            "vi": "vi-VN-HoaiMyNeural"
-        })
+        project_root = Path(__file__).resolve().parents[1]
+        default_voices = {
+            "en": str(project_root / "models" / "tts" / "en_US-lessac-medium.onnx"),
+            "vi": str(project_root / "models" / "tts" / "vi_VN-vais1000-medium.onnx"),
+        }
+        self.voices = {**default_voices, **cfg.get("voices", {})}
 
         self._mixer_initialized = False
         if _PYGAME_AVAILABLE:
@@ -59,9 +59,8 @@ class TTSEngine:
             except Exception as e:
                 print(f"[TTS] Warning: Could not initialize pygame mixer: {e}")
 
-        # pyttsx3 engine instance (initialized lazily)
-        self._offline_engine = None
-        self._offline_lock = threading.Lock()
+        self._piper_voices = {}
+        self._voice_lock = threading.Lock()
 
         # Task queue and worker thread
         self._task_queue = queue.Queue()
@@ -69,13 +68,28 @@ class TTSEngine:
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker_thread.start()
 
-    def _get_offline_engine(self):
-        if self._offline_engine is None and _PYTTSX3_AVAILABLE:
-            try:
-                self._offline_engine = pyttsx3.init()
-            except Exception as e:
-                print(f"[TTS] Warning: Could not initialize pyttsx3: {e}")
-        return self._offline_engine
+    def _get_voice(self, lang: str):
+        if not _PIPER_AVAILABLE:
+            print("[TTS] Piper is not installed. Run: pip install piper-tts")
+            return None
+        if lang in self._piper_voices:
+            return self._piper_voices[lang]
+
+        model_path = Path(self.voices.get(lang, self.voices["en"])).expanduser()
+        if not model_path.is_absolute():
+            model_path = Path(__file__).resolve().parents[1] / model_path
+        if not model_path.is_file():
+            print(f"[TTS] Piper model not found: {model_path}")
+            return None
+
+        with self._voice_lock:
+            if lang not in self._piper_voices:
+                try:
+                    self._piper_voices[lang] = PiperVoice.load(str(model_path))
+                except Exception as e:
+                    print(f"[TTS] Could not load Piper model {model_path}: {e}")
+                    return None
+        return self._piper_voices[lang]
 
     def stop(self):
         """Immediately stop any current playback and clear pending queue."""
@@ -91,12 +105,6 @@ class TTSEngine:
         if _PYGAME_AVAILABLE and self._mixer_initialized:
             try:
                 pygame.mixer.music.stop()
-            except Exception:
-                pass
-
-        if self._offline_engine is not None:
-            try:
-                self._offline_engine.stop()
             except Exception:
                 pass
 
@@ -136,87 +144,36 @@ class TTSEngine:
                 print(f"[TTS] Worker error: {e}")
 
     def _speak_internal(self, text: str, lang: str):
-        voice = self.voices.get(lang, self.voices.get("en", "en-US-JennyNeural"))
-        use_edge = (self.mode in ["hybrid", "edge-tts"]) and _EDGE_TTS_AVAILABLE and self._mixer_initialized
+        self._speak_piper(text, lang)
 
-        spoken = False
-        if use_edge:
-            try:
-                spoken = self._speak_edge_tts(text, voice)
-            except Exception as e:
-                print(f"[TTS] Edge-TTS failed ({e}), falling back to offline...")
-                spoken = False
-
-        if not spoken and (self.mode in ["hybrid", "pyttsx3"]):
-            self._speak_offline(text, lang)
-
-    def _speak_edge_tts(self, text: str, voice: str) -> bool:
-        """Fetch audio stream from Edge-TTS and play using pygame."""
+    def _speak_piper(self, text: str, lang: str):
+        """Synthesize with a cached local Piper voice and play the WAV stream."""
         if self._stop_event.is_set():
-            return False
+            return
 
-        async def _fetch():
-            communicate = edge_tts.Communicate(text, voice, rate=self.rate, volume=self.volume)
-            mp3_fp = io.BytesIO()
-            async for chunk in communicate.stream():
-                if self._stop_event.is_set():
-                    return None
-                if chunk["type"] == "audio":
-                    mp3_fp.write(chunk["data"])
-            mp3_fp.seek(0)
-            return mp3_fp
+        voice = self._get_voice(lang)
+        if voice is None or not self._mixer_initialized:
+            return
 
+        audio_fp = io.BytesIO()
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            audio_fp = loop.run_until_complete(_fetch())
-            loop.close()
+            with wave.open(audio_fp, "wb") as wav_file:
+                voice.synthesize(text, wav_file)
+            audio_fp.seek(0)
         except Exception as e:
-            return False
+            print(f"[TTS] Piper synthesis failed: {e}")
+            return
 
-        if audio_fp is None or self._stop_event.is_set():
-            return False
+        if self._stop_event.is_set():
+            return
 
         try:
-            pygame.mixer.music.load(audio_fp, "mp3")
+            pygame.mixer.music.load(audio_fp, "wav")
             pygame.mixer.music.play()
             while pygame.mixer.music.get_busy():
                 if self._stop_event.is_set():
                     pygame.mixer.music.stop()
-                    return False
+                    return
                 time.sleep(0.05)
-            return True
         except Exception as e:
             print(f"[TTS] Pygame playback error: {e}")
-            return False
-
-    def _speak_offline(self, text: str, lang: str):
-        """Fallback to pyttsx3 (SAPI5 on Windows)."""
-        if self._stop_event.is_set():
-            return
-
-        with self._offline_lock:
-            engine = self._get_offline_engine()
-            if engine is None:
-                return
-
-            try:
-                # Try to pick matching voice if available
-                voices = engine.getProperty("voices")
-                if voices:
-                    target_voice = None
-                    for v in voices:
-                        name_lower = v.name.lower()
-                        if lang == "vi" and ("vietnam" in name_lower or "vi-vn" in name_lower or "an" in name_lower):
-                            target_voice = v.id
-                            break
-                        elif lang == "en" and ("english" in name_lower or "en-us" in name_lower or "zira" in name_lower or "david" in name_lower):
-                            target_voice = v.id
-                            break
-                    if target_voice:
-                        engine.setProperty("voice", target_voice)
-
-                engine.say(text)
-                engine.runAndWait()
-            except Exception as e:
-                print(f"[TTS] pyttsx3 error: {e}")

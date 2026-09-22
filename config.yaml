@@ -33,11 +33,11 @@ ocr:
 
 tts:
   enabled: true
-  engine: "hybrid"         # "hybrid", "edge-tts", "pyttsx3"
+  engine: "piper"          # Local pretrained Piper voices
   auto_speak: false        # Tu dong doc khi co ket qua dich (true/false)
   rate: "+0%"              # Toc do doc: "+0%", "+10%", "-10%"
   volume: "+0%"
   voices:
-    en: "en-US-JennyNeural"
-    vi: "vi-VN-HoaiMyNeural"
+    en: "models/tts/en_US-lessac-medium.onnx"
+    vi: "models/tts/vi_VN-vais1000-medium.onnx"
  

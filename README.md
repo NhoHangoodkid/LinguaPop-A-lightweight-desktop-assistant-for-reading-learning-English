@@ -10,7 +10,7 @@
 
 - **Instant Selection Translation:** Highlight text in any application (browser, PDF, Word, code editor) and press a hotkey to see translated results in a sleek popup.
 - **Screen OCR Extraction:** Capture text from non-selectable areas (images, videos, scanned PDFs) with ultra-fast offline OCR.
-- **Hybrid Neural Text-to-Speech (TTS):** Hear crystal-clear native pronunciations powered by Microsoft Edge Neural AI (`edge-tts`), with automatic offline fallback (`pyttsx3`) when disconnected.
+- **Local Neural Text-to-Speech (TTS):** Hear native pronunciations from pretrained Piper ONNX voices loaded locally for fast offline inference.
 - **Dedicated Pronunciation Hotkey:** Speak highlighted words or sentences directly on-the-fly.
 - **Translation History:** Keep track of past translations with search, quick copy, and audio replay.
 - **Long Text Chunking:** Automatically segments long passages into sentences to preserve translation quality.
@@ -24,7 +24,7 @@ This project is optimized for speed and low resource consumption using open-sour
 - **Neural Machine Translation (NMT):** [MarianMT](https://huggingface.co/docs/transformers/model_doc/marian) (`opus-mt-en-vi`) fine-tuned on the MTet dataset and academic/IELTS parallel corpora.
 - **Inference Engine:** [CTranslate2](https://github.com/OpenNMT/CTranslate2) with 8-bit quantization (`int8`) for near-instant CPU/GPU inference.
 - **Optical Character Recognition (OCR):** [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr_onnxruntime`), combined with `OpenCV` and `Pillow`.
-- **Text-to-Speech (TTS):** [edge-tts](https://github.com/rany2/edge-tts) for Microsoft Edge Neural AI voices (`en-US-JennyNeural`, `vi-VN-HoaiMyNeural`), [pygame](https://github.com/pygame/pygame) for non-blocking in-memory audio playback, and [pyttsx3](https://github.com/nateshmbhat/pyttsx3) for offline Windows SAPI5 fallback.
+- **Text-to-Speech (TTS):** [Piper](https://github.com/rhasspy/piper) pretrained ONNX voices, with [pygame](https://github.com/pygame/pygame) for in-memory audio playback.
 - **User Interface (UI):** Pure `tkinter` with custom dark styling and DPI awareness for crisp rendering on high-resolution displays.
 - **System Interaction:** `pynput` for global hotkey hooks, `pyperclip` for clipboard integration.
 
@@ -148,13 +148,13 @@ ocr:
 
 tts:
   enabled: true
-  engine: "hybrid"         # "hybrid", "edge-tts", "pyttsx3"
+  engine: "piper"          # Local pretrained Piper voices
   auto_speak: false        # Auto-speak upon translation
   rate: "+0%"              # Speech speed: "+0%", "+10%", "-10%"
   volume: "+0%"
   voices:
-    en: "en-US-JennyNeural"
-    vi: "vi-VN-HoaiMyNeural"
+    en: "models/tts/en_US-lessac-medium.onnx"
+    vi: "models/tts/vi_VN-vais1000-medium.onnx"
 ```
 
 ---
@@ -170,4 +170,4 @@ Distributed under the **MIT License**. Free for academic, personal, and commerci
 - **Models:** [Helsinki-NLP/opus-mt-en-vi](https://huggingface.co/Helsinki-NLP/opus-mt-en-vi), MTET Parallel Corpus.
 - **Inference & NMT:** [CTranslate2](https://github.com/OpenNMT/CTranslate2), [Marian NMT](https://github.com/marian-nmt/marian), [Hugging Face Transformers](https://github.com/huggingface/transformers).
 - **OCR:** [RapidOCR](https://github.com/RapidAI/RapidOCR).
-- **Audio & TTS:** [edge-tts](https://github.com/rany2/edge-tts), [pygame](https://github.com/pygame/pygame), [pyttsx3](https://github.com/nateshmbhat/pyttsx3).
+- **Audio & TTS:** [Piper](https://github.com/rhasspy/piper), [pygame](https://github.com/pygame/pygame).
