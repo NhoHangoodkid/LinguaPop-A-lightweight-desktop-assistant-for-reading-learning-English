@@ -102,7 +102,7 @@ python src/main.py
 | :--- | :--- | :--- |
 | **`Ctrl + Shift + Y`** | **Translate Highlighted Text** | Grabs selected text, translates EN ➔ VI, and displays the popup. |
 | **`Ctrl + Shift + H`** | **OCR Screen & Translate** | Drag a bounding box on your screen to extract and translate text. |
-| **`Ctrl + Alt + S`** | **Pronounce Selection** | Instantly pronounces selected text out loud. |
+| **`Ctrl + Alt + Shift + P`** | **Pronounce Selection** | Instantly pronounces selected text out loud. |
 
 ### In-Popup Controls:
 - **`E`** or **`S`**: Pronounce source text (English).
@@ -121,7 +121,7 @@ You can customize hotkeys, TTS voices, reading speeds, and UI properties without
 hotkeys:
   translate_selection: "ctrl+shift+y"
   translate_ocr: "ctrl+shift+h"
-  speak_selection: "ctrl+alt+s"
+  speak_selection: "ctrl+alt+shift+p"
 
 device: "cpu"          # "cpu" or "cuda"
 

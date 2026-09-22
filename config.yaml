@@ -3,7 +3,7 @@
 hotkeys:
   translate_selection: "ctrl+shift+y"
   translate_ocr: "ctrl+shift+h"   # hotkey cho OCR
-  speak_selection: "ctrl+alt+s" # hotkey phat am van ban boi den (tranh trung DevTools Console)
+  speak_selection: "ctrl+alt+shift+p" # hotkey phat am van ban boi den
  
 device: "cpu"          # "cuda" neu may co GPU NVIDIA + CTranslate2 ban GPU
  
