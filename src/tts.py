@@ -10,24 +10,23 @@ import queue
 import time
 import wave
 from pathlib import Path
-from typing import Optional, Dict, Any
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-pygame: Any = None
+pygame = None
 try:
     import pygame
 
-    _PYGAME_AVAILABLE = True
+    pygame_available = True
 except ImportError:
-    _PYGAME_AVAILABLE = False
+    pygame_available = False
 
-PiperVoice: Any = None
+piper_voice = None
 try:
-    from piper import PiperVoice
+    from piper import PiperVoice as piper_voice
 
-    _PIPER_AVAILABLE = True
+    piper_available = True
 except ImportError:
-    _PIPER_AVAILABLE = False
+    piper_available = False
 
 
 def is_vietnamese(text: str) -> bool:
@@ -37,7 +36,7 @@ def is_vietnamese(text: str) -> bool:
 
 
 class TTSEngine:
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config=None):
         cfg = config or {}
         self.enabled = cfg.get("enabled", True)
         self.mode = cfg.get("engine", "piper")
@@ -50,30 +49,30 @@ class TTSEngine:
         }
         self.voices = {**default_voices, **cfg.get("voices", {})}
 
-        self._mixer_initialized = False
-        if _PYGAME_AVAILABLE:
+        self.mixer_initialized = False
+        if pygame_available and pygame is not None:
             try:
                 # Initialize pygame mixer with standard audio settings
                 pygame.mixer.init()
-                self._mixer_initialized = True
+                self.mixer_initialized = True
             except Exception as e:
                 print(f"[TTS] Warning: Could not initialize pygame mixer: {e}")
 
-        self._piper_voices = {}
-        self._voice_lock = threading.Lock()
+        self.piper_voices = {}
+        self.voice_lock = threading.Lock()
 
         # Task queue and worker thread
-        self._task_queue = queue.Queue()
-        self._stop_event = threading.Event()
-        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker_thread.start()
+        self.task_queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.worker_thread = threading.Thread(target=self.worker_loop, daemon=True)
+        self.worker_thread.start()
 
-    def _get_voice(self, lang: str):
-        if not _PIPER_AVAILABLE:
+    def get_voice(self, lang):
+        if not piper_available or piper_voice is None:
             print("[TTS] Piper is not installed. Run: pip install piper-tts")
             return None
-        if lang in self._piper_voices:
-            return self._piper_voices[lang]
+        if lang in self.piper_voices:
+            return self.piper_voices[lang]
 
         model_path = Path(self.voices.get(lang, self.voices["en"])).expanduser()
         if not model_path.is_absolute():
@@ -82,33 +81,33 @@ class TTSEngine:
             print(f"[TTS] Piper model not found: {model_path}")
             return None
 
-        with self._voice_lock:
-            if lang not in self._piper_voices:
+        with self.voice_lock:
+            if lang not in self.piper_voices:
                 try:
-                    self._piper_voices[lang] = PiperVoice.load(str(model_path))
+                    self.piper_voices[lang] = piper_voice.load(str(model_path))
                 except Exception as e:
                     print(f"[TTS] Could not load Piper model {model_path}: {e}")
                     return None
-        return self._piper_voices[lang]
+        return self.piper_voices[lang]
 
     def stop(self):
         """Immediately stop any current playback and clear pending queue."""
-        self._stop_event.set()
+        self.stop_event.set()
         # Drain the queue
-        while not self._task_queue.empty():
+        while not self.task_queue.empty():
             try:
-                self._task_queue.get_nowait()
-                self._task_queue.task_done()
+                self.task_queue.get_nowait()
+                self.task_queue.task_done()
             except queue.Empty:
                 break
 
-        if _PYGAME_AVAILABLE and self._mixer_initialized:
+        if pygame_available and pygame is not None and self.mixer_initialized:
             try:
                 pygame.mixer.music.stop()
             except Exception:
                 pass
 
-    def speak_async(self, text: str, lang: Optional[str] = None):
+    def speak_async(self, text, lang=None):
         """Queue text for playback in background thread."""
         if not self.enabled or not text or not text.strip():
             return
@@ -119,7 +118,7 @@ class TTSEngine:
 
         # Stop previous sound if any before queueing new speech
         self.stop()
-        self._stop_event.clear()
+        self.stop_event.clear()
 
         # Determine language if not supplied
         if not lang:
@@ -127,32 +126,32 @@ class TTSEngine:
         else:
             lang = "vi" if ("vi" in lang.lower() or "vie" in lang.lower()) else "en"
 
-        self._task_queue.put((text, lang))
+        self.task_queue.put((text, lang))
 
-    def _worker_loop(self):
+    def worker_loop(self):
         """Background thread executing speech requests one by one."""
         while True:
             try:
-                text, lang = self._task_queue.get()
-                if self._stop_event.is_set():
-                    self._task_queue.task_done()
+                text, lang = self.task_queue.get()
+                if self.stop_event.is_set():
+                    self.task_queue.task_done()
                     continue
 
-                self._speak_internal(text, lang)
-                self._task_queue.task_done()
+                self.speak_internal(text, lang)
+                self.task_queue.task_done()
             except Exception as e:
                 print(f"[TTS] Worker error: {e}")
 
-    def _speak_internal(self, text: str, lang: str):
-        self._speak_piper(text, lang)
+    def speak_internal(self, text, lang):
+        self.speak_piper(text, lang)
 
-    def _speak_piper(self, text: str, lang: str):
+    def speak_piper(self, text, lang):
         """Synthesize with a cached local Piper voice and play the WAV stream."""
-        if self._stop_event.is_set():
+        if self.stop_event.is_set():
             return
 
-        voice = self._get_voice(lang)
-        if voice is None or not self._mixer_initialized:
+        voice = self.get_voice(lang)
+        if voice is None or pygame is None or not self.mixer_initialized:
             return
 
         audio_fp = io.BytesIO()
@@ -164,14 +163,14 @@ class TTSEngine:
             print(f"[TTS] Piper synthesis failed: {e}")
             return
 
-        if self._stop_event.is_set():
+        if self.stop_event.is_set():
             return
 
         try:
             pygame.mixer.music.load(audio_fp, "wav")
             pygame.mixer.music.play()
             while pygame.mixer.music.get_busy():
-                if self._stop_event.is_set():
+                if self.stop_event.is_set():
                     pygame.mixer.music.stop()
                     return
                 time.sleep(0.05)
