@@ -14,3 +14,5 @@ Pillow>=10.0.0
 # --- TTS (Text to Speech) ---
 piper-tts>=1.2.0
 pygame>=2.5.2
+sounddevice>=0.4.6
+faster-whisper>=1.0.0,<2.0.0

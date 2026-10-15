@@ -9,6 +9,8 @@ import re
 import tkinter as tk
 from typing import Optional, Callable
 
+from pronunciation.scoring import PronunciationResult
+
 
 class Popup:
     def __init__(self, timeout_ms: int = 9000, font_size: int = 12, max_width: int = 460):
@@ -22,13 +24,21 @@ class Popup:
         self.on_history_click: Optional[Callable[[], None]] = None
         self.on_speak: Optional[Callable[[str, Optional[str]], None]] = None
         self.on_stop_speak: Optional[Callable[[], None]] = None
+        self.on_pronunciation: Optional[Callable[[str], None]] = None
 
     def _cancel_pending(self):
         if self._timer_id is not None:
             self.root.after_cancel(self._timer_id)
             self._timer_id = None
 
-    def show(self, text: str, x: Optional[int], y: Optional[int], source_text: Optional[str] = None):
+    def show(
+        self,
+        text: str,
+        x: Optional[int],
+        y: Optional[int],
+        source_text: Optional[str] = None,
+        pronunciation_result: Optional[PronunciationResult] = None,
+    ):
         self._cancel_pending()
         
         # Close existing popup if any (destroy immediately)
@@ -78,7 +88,45 @@ class Popup:
         parts = text.split("\n---\n")
 
         # Main translation content
-        if len(parts) > 1 and not is_error_or_loading:
+        if pronunciation_result:
+            result_text = tk.Text(
+                frame,
+                height=min(6, max(2, len(pronunciation_result.reference) // 45 + 1)),
+                wrap="word",
+                bg="#0f172a",
+                fg="#f8fafc",
+                relief="flat",
+                borderwidth=0,
+                font=("Segoe UI", self.font_size),
+                padx=0,
+                pady=0,
+            )
+            result_text.tag_configure("green", foreground="#22c55e")
+            result_text.tag_configure("yellow", foreground="#facc15")
+            result_text.tag_configure("red", foreground="#f87171")
+            position = 0
+            word_index = 0
+            for match in re.finditer(r"\b[\w']+\b", pronunciation_result.reference):
+                result_text.insert("end", pronunciation_result.reference[position:match.start()])
+                assessment = pronunciation_result.words[word_index]
+                result_text.insert("end", match.group(), assessment.color)
+                word_index += 1
+                position = match.end()
+            result_text.insert("end", pronunciation_result.reference[position:])
+            result_text.configure(state="disabled")
+            result_text.pack(fill="x", expand=True)
+
+            tk.Label(
+                frame,
+                text=f"Score: {pronunciation_result.accuracy}%  |  Heard: {pronunciation_result.transcription}",
+                bg="#0f172a",
+                fg="#cbd5e1",
+                font=("Segoe UI", 9),
+                justify="left",
+                anchor="w",
+                wraplength=self.max_width,
+            ).pack(fill="x", pady=(8, 0))
+        elif len(parts) > 1 and not is_error_or_loading:
             for i, p in enumerate(parts):
                 text_to_copy = p
                 match = re.match(r"^\[\d+\]\s*(.*)$", p, flags=re.DOTALL)
@@ -178,6 +226,26 @@ class Popup:
                     self.on_speak(trans_clean, "vi")
                 return "break"
             tgt_btn.bind("<Button-1>", _spk_tgt)
+
+        if self.on_pronunciation and source_text and not is_error_or_loading:
+            pronunciation_btn = tk.Label(
+                bottom_bar,
+                text="🎙 Check EN",
+                bg="#1e293b",
+                fg="#facc15",
+                font=("Segoe UI", 8, "bold"),
+                cursor="hand2",
+                padx=6,
+                pady=1,
+            )
+            pronunciation_btn.pack(side="left", padx=(6, 0))
+
+            def _check_pronunciation(e=None):
+                if self.on_pronunciation and source_text:
+                    self.on_pronunciation(source_text)
+                return "break"
+
+            pronunciation_btn.bind("<Button-1>", _check_pronunciation)
 
         # Right: Esc hint
         hint = tk.Label(

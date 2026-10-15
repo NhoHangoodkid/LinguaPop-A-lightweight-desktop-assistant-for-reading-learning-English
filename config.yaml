@@ -1,9 +1,9 @@
 # Cau hinh app dich. Sua o day, khong can sua code.
  
 hotkeys:
-  translate_selection: "ctrl+shift+y"
-  translate_ocr: "ctrl+shift+h"   # hotkey cho OCR
-  speak_selection: "ctrl+alt+shift+p" # hotkey phat am van ban boi den
+  translate_selection: "a+a"     # Nhan nhanh hai lan de dich van ban boi den
+  translate_ocr: "b+b"            # Nhan nhanh hai lan de chup man hinh va dich
+  speak_selection: "c+c"          # Nhan nhanh hai lan de phat am van ban boi den
  
 device: "cpu"          # "cuda" neu may co GPU NVIDIA + CTranslate2 ban GPU
  
@@ -40,4 +40,13 @@ tts:
   voices:
     en: "models/tts/en_US-lessac-medium.onnx"
     vi: "models/tts/vi_VN-vais1000-medium.onnx"
+
+pronunciation:
+  enabled: true
+  model_size: "tiny"       # Pretrained multilingual Whisper model
+  device: "cpu"            # "cuda" when a compatible CTranslate2 CUDA runtime is installed
+  compute_type: "int8"     # "float16" is commonly used with CUDA
+  language: "en"
+  record_seconds: 5
+  sample_rate: 16000
  

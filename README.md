@@ -8,7 +8,7 @@
 
 ## Demo
 
-![LinguaPop demo](0922.gif)
+![LinguaPop demo](demo.gif)
 
 LinguaPop can translate selected text, extract text from a screen region with OCR, and play the source or translated pronunciation without leaving the current application.
 
@@ -19,6 +19,7 @@ LinguaPop can translate selected text, extract text from a screen region with OC
 - **Instant Selection Translation:** Highlight text in any application (browser, PDF, Word, code editor) and press a hotkey to see translated results in a sleek popup.
 - **Screen OCR Extraction:** Capture text from non-selectable areas (images, videos, scanned PDFs) with ultra-fast offline OCR.
 - **Local Neural Text-to-Speech (TTS):** Hear native pronunciations from pretrained Piper ONNX voices loaded locally for fast offline inference.
+- **Pronunciation Feedback:** Record your English reading and see word-level green/yellow/red feedback against the reference text.
 - **Dedicated Pronunciation Hotkey:** Speak highlighted words or sentences directly on-the-fly.
 - **Translation History:** Keep track of past translations with search, quick copy, and audio replay.
 - **Long Text Chunking:** Automatically segments long passages into sentences to preserve translation quality.
@@ -33,6 +34,7 @@ This project is optimized for speed and low resource consumption using open-sour
 - **Inference Engine:** [CTranslate2](https://github.com/OpenNMT/CTranslate2) with 8-bit quantization (`int8`) for near-instant CPU/GPU inference.
 - **Optical Character Recognition (OCR):** [RapidOCR](https://github.com/RapidAI/RapidOCR) (`rapidocr_onnxruntime`), combined with `OpenCV` and `Pillow`.
 - **Text-to-Speech (TTS):** [Piper](https://github.com/rhasspy/piper) pretrained ONNX voices, with [pygame](https://github.com/pygame/pygame) for in-memory audio playback.
+- **Speech Recognition:** [Faster-Whisper Tiny](https://huggingface.co/Systran/faster-whisper-tiny), a pretrained multilingual model using CTranslate2 (`int8` on CPU by default).
 - **User Interface (UI):** Pure `tkinter` with custom dark styling and DPI awareness for crisp rendering on high-resolution displays.
 - **System Interaction:** `pynput` for global hotkey hooks, `pyperclip` for clipboard integration.
 
@@ -78,6 +80,8 @@ Once the virtual environment is activated `(venv)`, install all dependencies:
 pip install -r requirements.txt
 ```
 
+The first pronunciation check downloads the configured pretrained model; subsequent checks use its local cache. Click **Check EN** in a translation popup, then read the source text aloud while the microphone records. Green marks words recognized as written, yellow marks close transcript matches, and red marks mismatches or missed words. The score is based on word error rate, so it is a transcript-match estimate rather than a phoneme-, accent-, or tone-level assessment. Configure the model, language, inference device, and recording duration under `pronunciation` in `config.yaml`. The model requires 16 kHz microphone audio.
+
 ---
 
 ## Step 1: Convert the Model to CTranslate2
@@ -108,11 +112,11 @@ python src/main.py
 
 | Shortcut / Key | Action | Description |
 | :--- | :--- | :--- |
-| **`Ctrl + Shift + Y`** | **Translate Highlighted Text** | Grabs selected text, translates EN ➔ VI, and displays the popup. |
-| **`Ctrl + Shift + H`** | **OCR Screen & Translate** | Drag a bounding box on your screen to extract and translate text. |
-| **`Ctrl + Alt + Shift + P`** | **Pronounce Selection** | Instantly pronounces selected text out loud. |
+| **`A`, `A`** | **Translate Highlighted Text** | Press A twice quickly to translate selected text EN ➔ VI. |
+| **`B`, `B`** | **OCR Screen & Translate** | Press B twice quickly, then drag a bounding box to extract and translate text. |
+| **`C`, `C`** | **Pronounce Selection** | Press C twice quickly to pronounce selected text out loud. |
 
-You can custom your hotkeys easily.
+Double-tap keys must be pressed and released twice within 0.4 seconds. Customize these bindings in `hotkeys` in `config.yaml`. Existing combinations such as `ctrl+shift+y` remain supported. Note: letter double-taps are ordinary key presses too, so `aa`/`bb`/`cc` can be inserted into the active application or replace selected text in editable fields. Use modifier combinations instead when that would be disruptive.
 ## License
 
 Distributed under the **MIT License**. Intended for academic and personal use.

@@ -13,6 +13,7 @@ calls callbacks from a separate thread. The queue bridges the two threads safely
 import queue
 import sys
 import ctypes
+import threading
 
 try:
     # Set DPI awareness to avoid zoom issues when Windows scale > 100%
@@ -38,6 +39,8 @@ from hotkey import HotkeyListener
 from history import TranslationHistory
 from history_window import HistoryWindow
 from tts import TTSEngine
+from pronunciation import PronunciationEvaluator
+from pronunciation.recorder import record_audio
 import ocr
 
 ROOT = Path(__file__).parent.parent
@@ -92,17 +95,29 @@ def main():
     # Initialize TTS Engine
     tts_cfg = cfg.get("tts", {})
     tts_engine = TTSEngine(tts_cfg)
+    pronunciation_cfg = cfg.get("pronunciation", {})
+    pronunciation_enabled = pronunciation_cfg.get("enabled", False)
+    if pronunciation_enabled and pronunciation_cfg.get("sample_rate", 16000) != 16000:
+        raise ValueError("The pronunciation model requires a 16000 Hz sample rate.")
+    pronunciation_evaluator = PronunciationEvaluator(
+        model_size=pronunciation_cfg.get("model_size", "tiny"),
+        device=pronunciation_cfg.get("device", cfg.get("device", "cpu")),
+        compute_type=pronunciation_cfg.get("compute_type", "int8"),
+        language=pronunciation_cfg.get("language", "en"),
+    )
+    events = queue.Queue()
 
     # Connect TTS callbacks
     popup.on_speak = lambda text, lang: tts_engine.speak_async(text, lang)
     popup.on_stop_speak = lambda: tts_engine.stop()
+    if pronunciation_enabled:
+        popup.on_pronunciation = lambda text: events.put(("check_pronunciation", text))
     history_win.on_speak = lambda text, lang: tts_engine.speak_async(text, lang)
     
     ocr_lang = "vi" if "vie" in cfg["ocr"].get("lang", "").lower() else "en"
     ocr_engine_inst = ocr.OCREngine(lang=ocr_lang, use_gpu=(cfg.get("device") == "cuda"))
 
     # Queue bridging hotkey thread -> main thread (tkinter)
-    events = queue.Queue()
 
     def on_hotkey_sel():
         events.put("translate_sel")
@@ -136,14 +151,26 @@ def main():
     print("Close this terminal window to exit the app.\n")
 
     is_translating = False
+    is_checking_pronunciation = False
 
     def process_queue():
         last_event = None
+        pronunciation_events = []
         try:
             while True:
-                last_event = events.get_nowait()
+                event = events.get_nowait()
+                if isinstance(event, tuple):
+                    pronunciation_events.append(event)
+                else:
+                    last_event = event
         except queue.Empty:
             pass
+
+        for event in pronunciation_events:
+            if event[0] == "check_pronunciation":
+                start_pronunciation_check(event[1])
+            elif event[0] == "pronunciation_result":
+                show_pronunciation_result(*event[1:])
             
         if last_event == "translate_sel":
             handle_translate_sel()
@@ -247,6 +274,41 @@ def main():
             popup.show(f"\U0001f50a {text}", x, y, source_text=text)
         except Exception as e:
             popup.show(f"Pronounce error: {e}", x, y)
+
+    def start_pronunciation_check(reference):
+        nonlocal is_checking_pronunciation
+        if is_checking_pronunciation:
+            return
+
+        is_checking_pronunciation = True
+        x, y = mouse.position
+        popup.show("Listening... Please read the English text aloud.", x, y, source_text=reference)
+        duration = pronunciation_cfg.get("record_seconds", 5)
+        sample_rate = pronunciation_cfg.get("sample_rate", 16000)
+
+        def check_in_background():
+            try:
+                audio = record_audio(duration, sample_rate)
+                result = pronunciation_evaluator.evaluate(reference, audio, sample_rate)
+                events.put(("pronunciation_result", reference, result, None, x, y))
+            except Exception as e:
+                events.put(("pronunciation_result", reference, None, str(e), x, y))
+
+        threading.Thread(target=check_in_background, daemon=True).start()
+
+    def show_pronunciation_result(reference, result, error, x, y):
+        nonlocal is_checking_pronunciation
+        is_checking_pronunciation = False
+        if error:
+            popup.show(f"Pronunciation error: {error}", x, y, source_text=reference)
+            return
+        popup.show(
+            reference,
+            x,
+            y,
+            source_text=reference,
+            pronunciation_result=result,
+        )
 
     popup.root.after(80, process_queue)
     try:
